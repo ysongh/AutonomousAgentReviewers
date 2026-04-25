@@ -1,0 +1,11 @@
+{
+  "name": "autonomous-agent-reviewers",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "react": "pnpm --dir react dev",
+    "build": "pnpm --dir react build",
+    "lint": "pnpm --dir react lint",
+    "preview": "pnpm --dir react preview"
+  }
+}
