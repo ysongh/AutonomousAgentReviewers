@@ -61,6 +61,21 @@ ABI on `getFlowContract(...)` all work as-is.
 When building the real upload path (outside `bootstrap/`), reuse this same
 pattern — don't try `Indexer.upload` again expecting it to work.
 
+## Judge agent pattern
+
+Every judge agent (technical, and future security/design/etc.) follows the same shape:
+- `prompt.js` — `SYSTEM` rubric, `buildUserPrompt(submission)`, and a JSON
+  Schema for the tool that returns the verdict.
+- `handler.js` — `downloadJSON(submissionRootHash)` → zod-validate
+  `SubmissionRecord` → `callJudge({ system, user, schema })` →
+  zod-validate `JudgeVerdict` → `uploadJSON(verdict)` → return `{ verdictRootHash }`.
+- `index.js` — Express, `POST /judge { submissionRootHash, submissionId }`.
+
+`shared/claude.js` forces structured output with Anthropic's tool use
+(`tool_choice: { type: 'tool', name: 'submit_verdict' }`) instead of
+regex-extracting JSON from prose. New judges should reuse `callJudge` and
+just supply their own `schema` — don't re-prompt for "raw JSON only".
+
 ## Conventions
 
 - Never commit secrets. `.env` files are gitignored at each subproject's level;
