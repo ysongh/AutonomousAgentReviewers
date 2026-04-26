@@ -1,0 +1,159 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const { ethers, encodeBase64 } = require('ethers');
+const { MemData, Indexer, getFlowContract } = require('@0glabs/0g-ts-sdk');
+
+// The deployed flow contract on 0G Galileo wraps SubmissionData with the
+// submitter's address. The published SDK still calls the un-wrapped selector
+// (0xef3e12dc) and reverts. We bypass it and call the new selector
+// (0xbc8c11f8) ourselves. See CLAUDE.md and bootstrap/README.md for details.
+const NEW_SUBMIT_ABI = [
+  'function submit(((uint256,bytes,(bytes32,uint256)[]),address) submission) payable returns (uint256, bytes32, uint256, uint256)',
+  'function market() view returns (address)',
+];
+const MARKET_ABI = ['function pricePerSector() view returns (uint256)'];
+
+const SEGMENT_SIZE = 256 * 1024;
+const CHUNK_SIZE = 256;
+const PROPAGATION_TIMEOUT_MS = 120_000;
+const FINALIZATION_TIMEOUT_MS = 120_000;
+const POLL_INTERVAL_MS = 2000;
+
+function requireEnv() {
+  const { PRIVATE_KEY, RPC_URL, INDEXER_URL } = process.env;
+  if (!PRIVATE_KEY || !RPC_URL || !INDEXER_URL) {
+    throw new Error('Missing one of PRIVATE_KEY, RPC_URL, INDEXER_URL in environment');
+  }
+  return { PRIVATE_KEY, RPC_URL, INDEXER_URL };
+}
+
+async function uploadJSON(obj, { logger } = {}) {
+  const { PRIVATE_KEY, RPC_URL, INDEXER_URL } = requireEnv();
+
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+  const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+  const submitter = await wallet.getAddress();
+
+  const indexer = new Indexer(INDEXER_URL);
+  const [nodes, selectErr] = await indexer.selectNodes(1);
+  if (selectErr !== null) throw new Error(`selectNodes failed: ${selectErr}`);
+  const status = await nodes[0].getStatus();
+  if (status === null) throw new Error('storage node returned null status');
+
+  const flow = new ethers.Contract(status.networkIdentity.flowAddress, NEW_SUBMIT_ABI, wallet);
+  const flowForEvents = getFlowContract(status.networkIdentity.flowAddress, provider);
+  const marketAddr = await flow.market();
+  const market = new ethers.Contract(marketAddr, MARKET_ABI, provider);
+  const pricePerSector = await market.pricePerSector();
+
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  const file = new MemData(bytes);
+
+  const [tree, treeErr] = await file.merkleTree();
+  if (treeErr !== null) throw new Error(`merkleTree() failed: ${treeErr}`);
+  const rootHash = tree.rootHash();
+
+  const [submission, subErr] = await file.createSubmission('0x');
+  if (subErr !== null) throw new Error(`createSubmission failed: ${subErr}`);
+
+  let sectors = 0n;
+  for (const n of submission.nodes) sectors += 1n << BigInt(n.height.toString());
+  const fee = sectors * pricePerSector;
+
+  const wrapped = [
+    [
+      BigInt(submission.length),
+      submission.tags,
+      submission.nodes.map((n) => [n.root, BigInt(n.height.toString())]),
+    ],
+    submitter,
+  ];
+
+  logger?.info({ action: 'og.submit.start', rootHash, sizeBytes: bytes.length, fee: fee.toString() });
+  const tx = await flow.submit(wrapped, { value: fee });
+  const receipt = await tx.wait();
+
+  const submitTopic = flowForEvents.interface.getEvent('Submit').topicHash;
+  let txSeq = null;
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== flow.target.toLowerCase()) continue;
+    if (log.topics[0] !== submitTopic) continue;
+    const parsed = flowForEvents.interface.parseLog(log);
+    txSeq = Number(parsed.args.submissionIndex);
+    break;
+  }
+  if (txSeq === null) throw new Error('Failed to find Submit event in receipt logs');
+
+  logger?.info({ action: 'og.submit.mined', rootHash, txHash: tx.hash, txSeq, block: receipt.blockNumber });
+
+  // Wait for storage node to see the log entry
+  const propDeadline = Date.now() + PROPAGATION_TIMEOUT_MS;
+  let info = null;
+  while (Date.now() < propDeadline) {
+    info = await nodes[0].getFileInfoByTxSeq(txSeq);
+    if (info !== null) break;
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  }
+  if (info === null) throw new Error(`Storage node never saw txSeq ${txSeq} after ${PROPAGATION_TIMEOUT_MS}ms`);
+
+  // Upload the single segment (covers payloads up to 256KiB)
+  const segIter = file.iterateWithOffsetAndBatch(0, SEGMENT_SIZE, true);
+  const [ok, iterErr] = await segIter.next();
+  if (iterErr !== null || !ok) throw new Error(`segment iterate failed: ${iterErr}`);
+  let segment = segIter.current();
+  const expectedLen = CHUNK_SIZE * file.numChunks();
+  segment = segment.slice(0, expectedLen);
+
+  const proof = tree.proofAt(0);
+  const segWithProof = {
+    root: rootHash,
+    data: encodeBase64(segment),
+    index: 0,
+    proof,
+    fileSize: file.size(),
+  };
+
+  for (const node of nodes) {
+    try {
+      await node.uploadSegmentsByTxSeq([segWithProof], txSeq);
+    } catch (e) {
+      const msg = e?.message || String(e);
+      if (msg.includes('already uploaded') || e?.data === 'already uploaded and finalized') continue;
+      throw new Error(`segment upload to ${node.url} failed: ${msg}`);
+    }
+  }
+
+  // Wait for finalization
+  const finDeadline = Date.now() + FINALIZATION_TIMEOUT_MS;
+  while (Date.now() < finDeadline) {
+    const fin = await nodes[0].getFileInfoByTxSeq(txSeq);
+    if (fin !== null && fin.finalized) break;
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  }
+
+  logger?.info({ action: 'og.upload.done', rootHash, txHash: tx.hash, txSeq });
+  return { rootHash, txHash: tx.hash, txSeq };
+}
+
+async function downloadJSON(rootHash, { logger } = {}) {
+  const { INDEXER_URL } = requireEnv();
+  const indexer = new Indexer(INDEXER_URL);
+  const tmpFile = path.join(os.tmpdir(), `aar-dl-${crypto.randomUUID()}.json`);
+  logger?.info({ action: 'og.download.start', rootHash });
+  try {
+    const err = await indexer.download(rootHash, tmpFile, true);
+    if (err !== null) throw new Error(`download failed: ${err}`);
+    const raw = fs.readFileSync(tmpFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    logger?.info({ action: 'og.download.done', rootHash, sizeBytes: raw.length });
+    return parsed;
+  } finally {
+    if (fs.existsSync(tmpFile)) {
+      try { fs.unlinkSync(tmpFile); } catch (_) { /* ignore */ }
+    }
+  }
+}
+
+module.exports = { uploadJSON, downloadJSON };

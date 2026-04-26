@@ -11,8 +11,32 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   upload/download works on this machine. Self-contained: own `package.json`,
   own `node_modules`, own `.env`. Not imported by anything else and not part
   of the final architecture. See `bootstrap/README.md`.
+- `shared/` — Common modules used by every agent: `og-storage.js` (the
+  productionized 0G workaround — see below), `schemas.js` (zod), `claude.js`
+  (Anthropic wrapper), `github.js` (Octokit wrapper), `logger.js` (pino →
+  `logs/<agent>.jsonl`), `config.js` (ports, agent IDs). Has its own
+  `package.json`. Agents depend on it via `"aar-shared": "file:../../shared"`,
+  which symlinks `node_modules/aar-shared` → `shared/`. **No npm workspaces.**
+- `agents/<name>/` — One Express process per agent, own `package.json`, own
+  `node_modules/`. Agents do NOT pass payload data over HTTP — only root
+  hashes. The actual `SubmissionRecord` / `JudgeVerdict` payloads live on 0G
+  Storage. Validate every read AND every write against the zod schemas.
+- `scripts/` — CLI entry points (`start-all.sh`, `submit.js`).
+- `logs/` — Runtime JSONL per agent. Gitignored. The eventual dashboard
+  data source.
 - Root `package.json` — leave alone. No monorepo config, no workspaces. Each
   real subproject gets its own `package.json`.
+
+## 0G I/O — use shared/og-storage.js, not bootstrap/
+
+`bootstrap/upload.js` was the proof of concept. The productionized version
+lives in `shared/og-storage.js` and exposes `uploadJSON(obj)` /
+`downloadJSON(rootHash)`. **All real code must use it.** Don't re-port the
+workaround into another file — fix it in one place.
+
+Smoke test (Day 2): `node shared/smoke.js` round-trips a small JSON payload.
+Upload was ~10s end-to-end on Galileo; download ~1.5s. Tx fee for tiny
+payloads is dominated by gas.
 
 ## 0G Storage SDK / contract footgun (important)
 
