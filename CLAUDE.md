@@ -76,6 +76,36 @@ Every judge agent (technical, and future security/design/etc.) follows the same 
 regex-extracting JSON from prose. New judges should reuse `callJudge` and
 just supply their own `schema` — don't re-prompt for "raw JSON only".
 
+## Inter-agent flow (the bus)
+
+Day 2 pipeline (one judge, synchronous):
+
+```
+CLI (scripts/submit.js)
+  └─ POST :4001/submit { repoUrl }
+       intake/handler.js
+         ├─ Octokit fetchRepoMetadata(repoUrl)
+         ├─ uploadJSON(SubmissionRecord)        →  submissionRootHash
+         ├─ POST :4002/judge { submissionRootHash, submissionId }
+         │     judge-technical/handler.js
+         │       ├─ downloadJSON(submissionRootHash) → SubmissionRecord (zod-validated)
+         │       ├─ callJudge(...) → tool_use input
+         │       └─ uploadJSON(JudgeVerdict)    →  verdictRootHash
+         ├─ downloadJSON(verdictRootHash) → JudgeVerdict (zod-validated)
+         └─ respond { submissionId, submissionRootHash, verdictRootHash, verdict }
+```
+
+Rules that future agents must respect:
+- HTTP bodies between agents carry **only** root hashes + the `submissionId`
+  UUID. Never inline payload data.
+- Every agent that reads from 0G zod-validates the result before using it.
+  Every agent that writes to 0G zod-validates before calling `uploadJSON`.
+- Both ends assert `submissionId` matches the on-0G record (mismatched IDs
+  mean a wire is crossed — fail loudly, do not coerce).
+- Day 2 is synchronous (intake blocks on judge). Day 4 will go async via
+  callbacks — when that happens, the contract above stays the same; only
+  who-calls-whom changes.
+
 ## Conventions
 
 - Never commit secrets. `.env` files are gitignored at each subproject's level;

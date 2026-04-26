@@ -1,0 +1,15 @@
+{
+  "name": "aar-intake",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "aar-shared": "file:../../shared",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
+  }
+}
