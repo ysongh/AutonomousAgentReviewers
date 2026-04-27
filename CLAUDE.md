@@ -100,7 +100,7 @@ fallbacks.
 
 ## Inter-agent flow (the bus)
 
-Day 2 pipeline (one judge, synchronous):
+Day 3 pipeline — three judges in parallel, synchronous from the CLI's view:
 
 ```
 CLI (scripts/submit.js)
@@ -108,14 +108,25 @@ CLI (scripts/submit.js)
        intake/handler.js
          ├─ Octokit fetchRepoMetadata(repoUrl)
          ├─ uploadJSON(SubmissionRecord)        →  submissionRootHash
-         ├─ POST :4002/judge { submissionRootHash, submissionId }
-         │     judge-technical/handler.js
+         ├─ Promise.allSettled([
+         │     POST :4002/judge { submissionRootHash, submissionId },  // technical
+         │     POST :4003/judge { submissionRootHash, submissionId },  // originality
+         │     POST :4004/judge { submissionRootHash, submissionId },  // skeptic
+         │   ])
+         │     each judge:
          │       ├─ downloadJSON(submissionRootHash) → SubmissionRecord (zod-validated)
          │       ├─ callJudge(...) → tool_use input
-         │       └─ uploadJSON(JudgeVerdict)    →  verdictRootHash
-         ├─ downloadJSON(verdictRootHash) → JudgeVerdict (zod-validated)
-         └─ respond { submissionId, submissionRootHash, verdictRootHash, verdict }
+         │       └─ uploadJSON(JudgeVerdict) → verdictRootHash
+         │   intake then downloads + zod-validates each returned verdict
+         └─ respond { submissionId, submissionRootHash, verdicts, failures }
 ```
+
+Response shape:
+- `verdicts: Array<{ judgeId, verdictRootHash, verdict }>` — one entry per
+  judge that succeeded. Verdict objects already match the `JudgeVerdict`
+  zod schema.
+- `failures: Array<{ judgeId, error }>` — one entry per judge that threw or
+  returned an invalid response. Empty array on a clean run.
 
 Rules that future agents must respect:
 - HTTP bodies between agents carry **only** root hashes + the `submissionId`
@@ -124,7 +135,13 @@ Rules that future agents must respect:
   Every agent that writes to 0G zod-validates before calling `uploadJSON`.
 - Both ends assert `submissionId` matches the on-0G record (mismatched IDs
   mean a wire is crossed — fail loudly, do not coerce).
-- Day 2 is synchronous (intake blocks on judge). Day 4 will go async via
+- Intake fans out with `Promise.allSettled`, NOT `Promise.all`. Partial
+  results beat total failure — one bad judge must not poison the run. Log
+  the failure with an `error` event carrying `judgeId` and surface it in
+  the `failures` array.
+- Intake does NOT aggregate. It collects raw verdicts and returns them.
+  Aggregation + deliberation is Day 4.
+- Day 3 is synchronous (intake awaits all judges). Day 4 will go async via
   callbacks — when that happens, the contract above stays the same; only
   who-calls-whom changes.
 

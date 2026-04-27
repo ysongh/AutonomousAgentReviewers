@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Usage: node scripts/submit.js <github-repo-url>
-// POSTs the URL to intake (:4001/submit) and prints the verdict.
+// POSTs the URL to intake (:4001/submit) and prints all judge verdicts.
 
 const INTAKE_URL = 'http://127.0.0.1:4001/submit';
 
@@ -45,20 +45,36 @@ async function main() {
     process.exit(1);
   }
 
-  const { submissionId, submissionRootHash, verdictRootHash, verdict } = parsed;
+  const { submissionId, submissionRootHash, verdicts = [], failures = [] } = parsed;
 
   console.log('\n=== PIPELINE COMPLETE in', elapsed, 's ===');
   console.log('submissionId:       ', submissionId);
   console.log('submissionRootHash: ', submissionRootHash);
-  console.log('verdictRootHash:    ', verdictRootHash);
-  console.log('\n--- VERDICT ---');
-  console.log('agent:    ', verdict.agentId);
-  console.log('score:    ', verdict.score, '/ 10');
-  console.log('reasoning:', verdict.reasoning);
-  console.log('evidence:');
-  for (const e of verdict.evidence) console.log('  -', e);
-  console.log('producedAt:', verdict.producedAt);
-  console.log('\nVerify on 0G:  node bootstrap/download.js', verdictRootHash);
+  console.log('verdicts:           ', verdicts.length, '/ 3');
+  if (failures.length) console.log('failures:           ', failures.length);
+
+  for (const entry of verdicts) {
+    const { judgeId, verdictRootHash, verdict } = entry;
+    console.log(`\n--- VERDICT [${judgeId}] ---`);
+    console.log('verdictRootHash:', verdictRootHash);
+    console.log('score:    ', verdict.score, '/ 10');
+    console.log('reasoning:', verdict.reasoning);
+    console.log('evidence:');
+    for (const e of verdict.evidence) console.log('  -', e);
+    console.log('producedAt:', verdict.producedAt);
+  }
+
+  if (failures.length) {
+    console.log('\n--- FAILURES ---');
+    for (const f of failures) console.log(`  [${f.judgeId}] ${f.error}`);
+  }
+
+  if (verdicts.length) {
+    console.log('\nVerify any verdict on 0G:');
+    for (const v of verdicts) {
+      console.log('  node bootstrap/download.js', v.verdictRootHash, ` # ${v.judgeId}`);
+    }
+  }
 }
 
 main().catch((e) => {
