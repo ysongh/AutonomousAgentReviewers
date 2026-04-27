@@ -106,6 +106,33 @@ Rules that future agents must respect:
   callbacks — when that happens, the contract above stays the same; only
   who-calls-whom changes.
 
+## Running it (Day 2)
+
+One-time setup:
+```
+cd shared && npm install
+cd ../agents/intake && npm install
+cd ../judge-technical && npm install
+```
+Add `ANTHROPIC_API_KEY` to root `.env`. `GITHUB_TOKEN` is optional.
+
+Two terminals:
+```
+# terminal 1 — both agents, prefixed stdout, Ctrl-C kills both
+./scripts/start-all.sh
+
+# terminal 2 — submit a repo, get verdict synchronously
+node scripts/submit.js https://github.com/sindresorhus/is
+```
+
+`scripts/start-all.sh` refuses to run if either agent's `node_modules/` is
+missing. `scripts/submit.js` POSTs to intake at `:4001/submit` and prints
+`submissionRootHash`, `verdictRootHash`, score, reasoning, and evidence.
+To prove the verdict is genuinely on 0G:
+```
+node bootstrap/download.js <verdictRootHash>
+```
+
 ## Conventions
 
 - Never commit secrets. `.env` files are gitignored at each subproject's level;
