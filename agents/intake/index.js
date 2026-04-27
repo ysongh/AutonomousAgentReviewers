@@ -1,7 +1,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 const express = require('express');
-const { makeLogger } = require('aar-shared/logger');
+const { makeLogger, EVENTS } = require('aar-shared/logger');
 const { PORTS, AGENT_IDS } = require('aar-shared/config');
 const { intake } = require('./handler');
 
@@ -20,12 +20,12 @@ app.post('/submit', async (req, res) => {
     const result = await intake({ repoUrl }, logger);
     res.json(result);
   } catch (err) {
-    logger.error({ action: 'intake.error', err: err.message, stack: err.stack });
+    logger.error({ event: EVENTS.ERROR, error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message });
   }
 });
 
 app.listen(PORT, () => {
-  logger.info({ action: 'agent.listening', port: PORT });
+  logger.info({ event: 'agent-listening', port: PORT });
   console.log(`[${AGENT_ID}] listening on :${PORT}`);
 });

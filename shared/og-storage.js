@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { ethers, encodeBase64 } = require('ethers');
 const { MemData, Indexer, getFlowContract } = require('@0glabs/0g-ts-sdk');
+const { EVENTS, startTimer } = require('./logger');
 
 // The deployed flow contract on 0G Galileo wraps SubmissionData with the
 // submitter's address. The published SDK still calls the un-wrapped selector
@@ -29,8 +30,9 @@ function requireEnv() {
   return { PRIVATE_KEY, RPC_URL, INDEXER_URL };
 }
 
-async function uploadJSON(obj, { logger } = {}) {
+async function uploadJSON(obj, { logger, submissionId } = {}) {
   const { PRIVATE_KEY, RPC_URL, INDEXER_URL } = requireEnv();
+  const overallTimer = startTimer();
 
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
@@ -71,7 +73,13 @@ async function uploadJSON(obj, { logger } = {}) {
     submitter,
   ];
 
-  logger?.info({ action: 'og.submit.start', rootHash, sizeBytes: bytes.length, fee: fee.toString() });
+  logger?.info({
+    event: EVENTS.UPLOAD_START,
+    submissionId,
+    rootHash,
+    sizeBytes: bytes.length,
+    fee: fee.toString(),
+  });
   const tx = await flow.submit(wrapped, { value: fee });
   const receipt = await tx.wait();
 
@@ -86,7 +94,14 @@ async function uploadJSON(obj, { logger } = {}) {
   }
   if (txSeq === null) throw new Error('Failed to find Submit event in receipt logs');
 
-  logger?.info({ action: 'og.submit.mined', rootHash, txHash: tx.hash, txSeq, block: receipt.blockNumber });
+  logger?.info({
+    event: 'upload-mined',
+    submissionId,
+    rootHash,
+    txHash: tx.hash,
+    txSeq,
+    block: receipt.blockNumber,
+  });
 
   // Wait for storage node to see the log entry
   const propDeadline = Date.now() + PROPAGATION_TIMEOUT_MS;
@@ -133,21 +148,35 @@ async function uploadJSON(obj, { logger } = {}) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
 
-  logger?.info({ action: 'og.upload.done', rootHash, txHash: tx.hash, txSeq });
+  logger?.info({
+    event: EVENTS.UPLOAD_COMPLETE,
+    submissionId,
+    rootHash,
+    txHash: tx.hash,
+    txSeq,
+    durationMs: overallTimer(),
+  });
   return { rootHash, txHash: tx.hash, txSeq };
 }
 
-async function downloadJSON(rootHash, { logger } = {}) {
+async function downloadJSON(rootHash, { logger, submissionId } = {}) {
   const { INDEXER_URL } = requireEnv();
   const indexer = new Indexer(INDEXER_URL);
   const tmpFile = path.join(os.tmpdir(), `aar-dl-${crypto.randomUUID()}.json`);
-  logger?.info({ action: 'og.download.start', rootHash });
+  const timer = startTimer();
+  logger?.info({ event: EVENTS.DOWNLOAD_START, submissionId, rootHash });
   try {
     const err = await indexer.download(rootHash, tmpFile, true);
     if (err !== null) throw new Error(`download failed: ${err}`);
     const raw = fs.readFileSync(tmpFile, 'utf8');
     const parsed = JSON.parse(raw);
-    logger?.info({ action: 'og.download.done', rootHash, sizeBytes: raw.length });
+    logger?.info({
+      event: EVENTS.DOWNLOAD_COMPLETE,
+      submissionId,
+      rootHash,
+      sizeBytes: raw.length,
+      durationMs: timer(),
+    });
     return parsed;
   } finally {
     if (fs.existsSync(tmpFile)) {

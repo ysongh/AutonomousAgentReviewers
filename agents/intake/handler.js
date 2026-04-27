@@ -3,6 +3,7 @@ const { uploadJSON, downloadJSON } = require('aar-shared/og-storage');
 const { fetchRepoMetadata } = require('aar-shared/github');
 const { SubmissionRecord, JudgeVerdict } = require('aar-shared/schemas');
 const { PORTS, AGENT_IDS } = require('aar-shared/config');
+const { EVENTS, startTimer } = require('aar-shared/logger');
 
 const AGENT_ID = AGENT_IDS.intake;
 const JUDGE_URL = `http://127.0.0.1:${PORTS['judge-technical']}/judge`;
@@ -11,14 +12,18 @@ async function intake({ repoUrl }, logger) {
   if (!repoUrl) throw new Error('repoUrl is required');
 
   const submissionId = crypto.randomUUID();
-  logger.info({ action: 'intake.received', repoUrl, submissionId });
+  logger.info({ event: EVENTS.SUBMISSION_RECEIVED, submissionId, repoUrl });
 
+  const ghTimer = startTimer();
+  logger.info({ event: EVENTS.GITHUB_FETCH_START, submissionId, repoUrl });
   const meta = await fetchRepoMetadata(repoUrl);
   logger.info({
-    action: 'intake.github_fetched',
+    event: EVENTS.GITHUB_FETCH_COMPLETE,
+    submissionId,
     repoName: meta.repoName,
     readmeBytes: meta.readme.length,
     treeEntries: meta.fileTree.length,
+    durationMs: ghTimer(),
   });
 
   const submission = SubmissionRecord.parse({
@@ -31,16 +36,16 @@ async function intake({ repoUrl }, logger) {
     fetchedAt: new Date().toISOString(),
   });
 
-  const { rootHash: submissionRootHash, txHash: subTxHash } =
-    await uploadJSON(submission, { logger });
-  logger.info({
-    action: 'intake.submission_uploaded',
-    submissionRootHash,
-    txHash: subTxHash,
-    submissionId,
-  });
+  const { rootHash: submissionRootHash } =
+    await uploadJSON(submission, { logger, submissionId });
 
-  logger.info({ action: 'intake.calling_judge', url: JUDGE_URL, submissionRootHash });
+  const judgeTimer = startTimer();
+  logger.info({
+    event: EVENTS.JUDGE_CALL_START,
+    submissionId,
+    judgeId: AGENT_IDS.judgeTechnical,
+    rootHash: submissionRootHash,
+  });
   const judgeResp = await fetch(JUDGE_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -52,9 +57,15 @@ async function intake({ repoUrl }, logger) {
   }
   const { verdictRootHash } = await judgeResp.json();
   if (!verdictRootHash) throw new Error('judge-technical response missing verdictRootHash');
-  logger.info({ action: 'intake.judge_done', verdictRootHash });
+  logger.info({
+    event: EVENTS.JUDGE_CALL_COMPLETE,
+    submissionId,
+    judgeId: AGENT_IDS.judgeTechnical,
+    rootHash: verdictRootHash,
+    durationMs: judgeTimer(),
+  });
 
-  const rawVerdict = await downloadJSON(verdictRootHash, { logger });
+  const rawVerdict = await downloadJSON(verdictRootHash, { logger, submissionId });
   const verdict = JudgeVerdict.parse(rawVerdict);
 
   if (verdict.submissionId !== submissionId) {
@@ -62,14 +73,6 @@ async function intake({ repoUrl }, logger) {
       `verdict.submissionId mismatch: expected ${submissionId}, got ${verdict.submissionId}`,
     );
   }
-
-  logger.info({
-    action: 'intake.verdict_returned',
-    submissionId,
-    submissionRootHash,
-    verdictRootHash,
-    score: verdict.score,
-  });
 
   return { submissionId, submissionRootHash, verdictRootHash, verdict };
 }

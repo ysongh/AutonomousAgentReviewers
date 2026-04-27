@@ -133,6 +133,45 @@ To prove the verdict is genuinely on 0G:
 node bootstrap/download.js <verdictRootHash>
 ```
 
+## Log event shape
+
+Every agent logs JSONL via `shared/logger.js` (pino) to `logs/<agentId>.jsonl`.
+The dashboard (and the log-streamer SSE feed) consumes these files, so the
+shape is a contract — don't drift from it.
+
+Required fields on every entry (auto-populated by pino):
+- `timestamp` — ISO string (renamed from pino's default `time`)
+- `agentId`   — string, set via pino `base`
+
+Required fields on every entry the dashboard cares about (set by the call site):
+- `event`        — one of the canonical names below
+- `submissionId` — UUID, when the entry belongs to a submission's lifecycle
+- `rootHash`     — when the entry refers to a 0G upload/download
+- `durationMs`   — number, on every `*-complete` event
+- `error`        — string, on `error` events only
+
+Canonical event vocabulary (exported as `EVENTS` from `aar-shared/logger`):
+- `submission-received`
+- `github-fetch-start`, `github-fetch-complete`
+- `upload-start`, `upload-complete`
+- `download-start`, `download-complete`
+- `claude-start`, `claude-complete`
+- `judge-call-start`, `judge-call-complete`
+- `error`
+
+Use `startTimer()` from the same module to populate `durationMs`:
+```js
+const { EVENTS, startTimer } = require('aar-shared/logger');
+const t = startTimer();
+logger.info({ event: EVENTS.UPLOAD_START, submissionId, rootHash });
+// ... work ...
+logger.info({ event: EVENTS.UPLOAD_COMPLETE, submissionId, rootHash, durationMs: t() });
+```
+
+Non-canonical events (e.g. `agent-listening`, `upload-mined`) are allowed and
+must still carry `timestamp` + `agentId` + `event`, but the dashboard may
+ignore them. When in doubt, prefer a canonical name.
+
 ## Conventions
 
 - Never commit secrets. `.env` files are gitignored at each subproject's level;
