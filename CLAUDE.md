@@ -24,6 +24,10 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   Phase 1 agents: `intake` (4001), `judge-technical` (4002),
   `judge-originality` (4003), `judge-skeptic` (4004). Ports + URLs are
   centralized in `shared/config.js` (`PORTS`, `AGENT_IDS`, `JUDGE_URLS`).
+- `log-streamer/` — Sibling service (NOT under `agents/`) on port 4100.
+  Tails `logs/*.jsonl` via chokidar and exposes a Server-Sent Events feed
+  the dashboard will consume. Has its own `package.json` and `node_modules/`
+  with `aar-shared` symlinked the same way the agents do it.
 - `scripts/` — CLI entry points (`start-all.sh`, `submit.js`).
 - `logs/` — Runtime JSONL per agent. Gitignored. The eventual dashboard
   data source.
@@ -210,6 +214,34 @@ logger.info({ event: EVENTS.UPLOAD_COMPLETE, submissionId, rootHash, durationMs:
 Non-canonical events (e.g. `agent-listening`, `upload-mined`) are allowed and
 must still carry `timestamp` + `agentId` + `event`, but the dashboard may
 ignore them. When in doubt, prefer a canonical name.
+
+## Log streamer (port 4100)
+
+`log-streamer/index.js` is the bridge between the agents' on-disk JSONL
+logs and the Phase 2 dashboard. It tails every file matching
+`logs/*.jsonl` with chokidar, maintains a per-file byte offset so it only
+reads newly appended bytes, and broadcasts each parsed entry as a
+Server-Sent Event.
+
+Endpoints:
+- `GET /events` — SSE stream. Headers: `Content-Type: text/event-stream`,
+  `Cache-Control: no-cache`, `Connection: keep-alive`. On connect the
+  service replays the in-memory ring buffer (last 200 entries it has seen)
+  before going live. Sends a `: ping` comment every 15s as a keepalive.
+  Each event body is a single JSONL log entry as `data: {...}\n\n`.
+- `GET /health` — `{ status: 'ok', clients, buffered }`.
+
+Design rules:
+- The ring buffer holds the last 200 entries the streamer has *observed
+  this run*. On startup, files are tailed from their current end — the
+  service does NOT replay historical log content from prior runs. The
+  dashboard cares about the live pipeline, not yesterday's traffic.
+- The streamer is a passive consumer of the JSONL files. It does not write
+  to them, does not parse log structure beyond `JSON.parse`, and does not
+  filter by event name. Whatever the agents log, it ships. Dashboard-side
+  filtering is the dashboard's job.
+- Truncation guard: if a watched file shrinks (rotation, manual clear),
+  the offset resets to 0 so the next read does not skip into garbage.
 
 ## Conventions
 

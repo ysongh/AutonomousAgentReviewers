@@ -1,0 +1,16 @@
+{
+  "name": "aar-log-streamer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "aar-shared": "file:../shared",
+    "chokidar": "^3.6.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
+  }
+}
