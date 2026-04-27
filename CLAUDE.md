@@ -21,6 +21,9 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   `node_modules/`. Agents do NOT pass payload data over HTTP — only root
   hashes. The actual `SubmissionRecord` / `JudgeVerdict` payloads live on 0G
   Storage. Validate every read AND every write against the zod schemas.
+  Phase 1 agents: `intake` (4001), `judge-technical` (4002),
+  `judge-originality` (4003), `judge-skeptic` (4004). Ports + URLs are
+  centralized in `shared/config.js` (`PORTS`, `AGENT_IDS`, `JUDGE_URLS`).
 - `scripts/` — CLI entry points (`start-all.sh`, `submit.js`).
 - `logs/` — Runtime JSONL per agent. Gitignored. The eventual dashboard
   data source.
@@ -63,7 +66,7 @@ pattern — don't try `Indexer.upload` again expecting it to work.
 
 ## Judge agent pattern
 
-Every judge agent (technical, and future security/design/etc.) follows the same shape:
+Every judge agent follows the same shape:
 - `prompt.js` — `SYSTEM` rubric, `buildUserPrompt(submission)`, and a JSON
   Schema for the tool that returns the verdict.
 - `handler.js` — `downloadJSON(submissionRootHash)` → zod-validate
@@ -75,6 +78,25 @@ Every judge agent (technical, and future security/design/etc.) follows the same 
 (`tool_choice: { type: 'tool', name: 'submit_verdict' }`) instead of
 regex-extracting JSON from prose. New judges should reuse `callJudge` and
 just supply their own `schema` — don't re-prompt for "raw JSON only".
+
+The three Day-3 judges share this pattern by **copy, not abstraction**.
+Three near-identical folders is the right shape for the swarm — do not
+refactor them into a generic judge factory. Differences live entirely in
+`prompt.js`:
+- `judge-technical` (port 4002) — code quality, architecture, completeness,
+  documentation. Calibrated fairly across 0–10.
+- `judge-originality` (port 4003) — novelty of idea/approach, plagiarism red
+  flags. Has NO web access; uncertainty pulls scores toward the middle
+  rather than fabricating matches.
+- `judge-skeptic` (port 4004) — deliberately harsh; hunts promise-vs-delivery
+  gaps, stubs, and overclaims. Calibrated to lean low when debating between
+  two adjacent scores. Exists to balance the panel's average-case agreement
+  bias.
+
+All three return the same `JudgeVerdict` schema (`{ score: 0-10 integer,
+reasoning, evidence: string[] }`). Tool_use is the contract — if Claude
+fails to return valid tool input, fail loudly. Do not add prose-parsing
+fallbacks.
 
 ## Inter-agent flow (the bus)
 
