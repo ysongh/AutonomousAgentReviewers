@@ -15,8 +15,17 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   productionized 0G workaround — see below), `schemas.js` (zod), `claude.js`
   (Anthropic wrapper), `github.js` (Octokit wrapper), `logger.js` (pino →
   `logs/<agent>.jsonl`), `config.js` (ports, agent IDs). Has its own
-  `package.json`. Agents depend on it via `"aar-shared": "file:../../shared"`,
-  which symlinks `node_modules/aar-shared` → `shared/`. **No npm workspaces.**
+  `package.json`. Agents depend on it via `"aar-shared": "link:../../shared"`
+  (pnpm's `link:` protocol — log-streamer uses `link:../shared`). This makes
+  `node_modules/aar-shared` a real symlink to the live `shared/` directory,
+  so edits to `shared/*.js` are picked up on the next process restart with
+  no reinstall needed. **No pnpm workspaces, no monorepo config** — each
+  subproject installs independently.
+
+  **Do NOT use the `file:` protocol with pnpm.** pnpm snapshots `file:` deps
+  into a frozen copy under `.pnpm/`, which means edits to `shared/` are
+  invisible until you reinstall every dependent package. We learned this
+  the hard way on Day 3.
 - `agents/<name>/` — One Express process per agent, own `package.json`, own
   `node_modules/`. Agents do NOT pass payload data over HTTP — only root
   hashes. The actual `SubmissionRecord` / `JudgeVerdict` payloads live on 0G
@@ -149,29 +158,47 @@ Rules that future agents must respect:
   callbacks — when that happens, the contract above stays the same; only
   who-calls-whom changes.
 
-## Running it (Day 2)
+## Running it (Day 3)
 
-One-time setup:
+One-time setup — install in every subproject (the `link:` protocol points
+each `node_modules/aar-shared` at the live `shared/` directory, so future
+edits to `shared/` need no reinstall):
 ```
-cd shared && npm install
-cd ../agents/intake && npm install
-cd ../judge-technical && npm install
+cd shared && pnpm install
+cd ../agents/intake && pnpm install
+cd ../judge-technical && pnpm install
+cd ../judge-originality && pnpm install
+cd ../judge-skeptic && pnpm install
+cd ../../log-streamer && pnpm install
 ```
-Add `ANTHROPIC_API_KEY` to root `.env`. `GITHUB_TOKEN` is optional.
+Add `ANTHROPIC_API_KEY`, `PRIVATE_KEY`, `RPC_URL`, `INDEXER_URL` to root
+`.env`. `GITHUB_TOKEN` is optional but raises GitHub's anonymous rate limit.
 
-Two terminals:
+Three terminals:
 ```
-# terminal 1 — both agents, prefixed stdout, Ctrl-C kills both
+# terminal 1 — start all 5 services (4 agents + log-streamer)
 ./scripts/start-all.sh
 
-# terminal 2 — submit a repo, get verdict synchronously
+# terminal 2 — tap the live SSE feed (optional; the dashboard will do this)
+curl -N http://localhost:4100/events
+
+# terminal 3 — submit a repo, get all three verdicts synchronously
 node scripts/submit.js https://github.com/sindresorhus/is
 ```
 
-`scripts/start-all.sh` refuses to run if either agent's `node_modules/` is
-missing. `scripts/submit.js` POSTs to intake at `:4001/submit` and prints
-`submissionRootHash`, `verdictRootHash`, score, reasoning, and evidence.
-To prove the verdict is genuinely on 0G:
+`scripts/start-all.sh` refuses to run if any subproject's `node_modules/`
+is missing and tells you which ones. `scripts/stop-all.sh` kills anything
+listening on the Phase 1 ports (4001-4004, 4100) — useful if a previous
+run was backgrounded or crashed.
+
+`scripts/submit.js` POSTs to intake at `:4001/submit` and prints the
+`submissionRootHash`, every successful verdict (judgeId, verdictRootHash,
+score, reasoning, evidence), and any judge failures. Expected end-to-end
+time on Galileo: ~35-40s, dominated by the two 0G uploads (~10s each).
+The three judges run concurrently; total time should not multiply with
+the number of judges.
+
+To prove a verdict is genuinely on 0G:
 ```
 node bootstrap/download.js <verdictRootHash>
 ```

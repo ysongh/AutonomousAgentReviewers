@@ -8,7 +8,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "aar-shared": "file:../shared",
+    "aar-shared": "link:../shared",
     "chokidar": "^3.6.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.1"
