@@ -310,6 +310,16 @@ Architectural rules:
   no persistence. If the user refreshes, the run state is gone — they
   re-submit from the form.
 
+Type contract:
+- `react/src/types.ts` mirrors the bus schemas: `LogEvent` matches the
+  canonical shape from `shared/logger.js`, `Verdict` matches the zod
+  schema from `shared/schemas.js`, `SubmissionResponse` matches what
+  `agents/intake/handler.js` returns. If those server-side shapes
+  change, update `types.ts` in the same commit.
+- `react/src/config.ts` `AGENTS` is the dashboard's source of truth for
+  rendering order and labels of the five services. Its `id` values must
+  match `AGENT_IDS` in `shared/config.js` exactly.
+
 - Never commit secrets. `.env` files are gitignored at each subproject's level;
   ship `.env.example` with placeholders.
 - Treat 0G testnet calls as flaky — log entries can take seconds to propagate
