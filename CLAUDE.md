@@ -5,8 +5,13 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
 
 ## Layout
 
-- `react/` — Vite + React + TS template, the eventual dashboard. **Do not
-  modify** until the dashboard work officially starts.
+- `react/` — Vite + React 19 + TS dashboard (Phase 2). Consumes the
+  log-streamer's SSE feed for live agent activity and POSTs submissions
+  to intake. Uses `react-router-dom` for routing (`/` dashboard,
+  `/agents` per-agent detail). No UI lib, no state lib — plain CSS plus
+  hooks; the surface is small enough that a framework would be overhead.
+  Has its own `package.json` and uses `pnpm`. Standalone — does not
+  share `node_modules` with the agents.
 - `bootstrap/` — Throwaway Day-1 sanity check that proves 0G Storage
   upload/download works on this machine. Self-contained: own `package.json`,
   own `node_modules`, own `.env`. Not imported by anything else and not part
@@ -278,7 +283,32 @@ Design rules:
 - Truncation guard: if a watched file shrinks (rotation, manual clear),
   the offset resets to 0 so the next read does not skip into garbage.
 
-## Conventions
+## Dashboard (react/, Phase 2)
+
+The dashboard is a same-origin SPA. In dev, Vite proxies backend traffic
+so the browser never hits CORS:
+  - `/submit` → `http://127.0.0.1:4001` (intake)
+  - `/events` → `http://127.0.0.1:4100` (log-streamer SSE)
+
+This lets the React app call relative URLs (`fetch('/submit', ...)`,
+`new EventSource('/events')`) and stay portable to a production deploy
+where the same paths are reverse-proxied.
+
+Architectural rules:
+- The dashboard is a **passive consumer** of the existing bus. It does
+  not introduce new HTTP endpoints, log events, or 0G writes. If the
+  dashboard needs information the agents don't already emit, the right
+  fix is to add it to the agents' canonical event vocabulary, not to
+  paper over it client-side.
+- Submission completion is derived from the HTTP response to
+  `POST /submit` (which already returns the verdicts) — NOT from a
+  synthetic SSE event. This keeps intake unchanged and the contract
+  symmetric with the CLI.
+- One SSE connection per browser tab, opened above `<Routes>` so
+  navigation between routes does not tear it down.
+- The dashboard renders the **current submission only**. No history,
+  no persistence. If the user refreshes, the run state is gone — they
+  re-submit from the form.
 
 - Never commit secrets. `.env` files are gitignored at each subproject's level;
   ship `.env.example` with placeholders.
