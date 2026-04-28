@@ -75,10 +75,22 @@ function readNewLines(filePath) {
   }
 }
 
-const watcher = chokidar.watch(path.join(PATHS.logs, '*.jsonl'), {
+// Polling, not FSEvents. macOS FSEvents under-reports cross-process appends:
+// when an agent's pino stream flushes a few bytes to logs/<name>.jsonl, the
+// event often never reaches chokidar in this process, so SSE clients see
+// only the 15s keepalive pings during a real submission. Polling at 200ms
+// is the cost of reliability here — these are tiny files, not a hot path.
+const watcher = chokidar.watch(PATHS.logs, {
   persistent: true,
   ignoreInitial: false,
+  usePolling: true,
+  interval: 200,
+  binaryInterval: 200,
   awaitWriteFinish: false,
+  ignored: (filePath) => {
+    if (filePath === PATHS.logs) return false;
+    return !filePath.endsWith('.jsonl');
+  },
 });
 
 watcher.on('add', (filePath) => {

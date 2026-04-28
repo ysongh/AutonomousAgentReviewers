@@ -245,10 +245,18 @@ ignore them. When in doubt, prefer a canonical name.
 ## Log streamer (port 4100)
 
 `log-streamer/index.js` is the bridge between the agents' on-disk JSONL
-logs and the Phase 2 dashboard. It tails every file matching
-`logs/*.jsonl` with chokidar, maintains a per-file byte offset so it only
-reads newly appended bytes, and broadcasts each parsed entry as a
-Server-Sent Event.
+logs and the Phase 2 dashboard. It tails every `*.jsonl` file under
+`logs/` with chokidar (polling mode — see below), maintains a per-file
+byte offset so it only reads newly appended bytes, and broadcasts each
+parsed entry as a Server-Sent Event.
+
+Why polling (`usePolling: true, interval: 200`) instead of native FS
+events: macOS FSEvents under-reports cross-process appends. When an
+agent's pino stream flushes a few bytes to `logs/<name>.jsonl`, the
+event often never reaches chokidar in the streamer process, so SSE
+clients see only the 15s keepalive pings during a real submission.
+Polling the directory is the cost of reliability; these are tiny files
+and a few-per-minute write rate, so the CPU overhead is negligible.
 
 Endpoints:
 - `GET /events` — SSE stream. Headers: `Content-Type: text/event-stream`,
@@ -277,5 +285,13 @@ Design rules:
 - Treat 0G testnet calls as flaky — log entries can take seconds to propagate
   to storage nodes after a successful on-chain submit. Poll
   `getFileInfoByTxSeq(txSeq)` until non-null before pushing segments.
+- Concurrent uploads from the **same wallet** can revert on Galileo. Three
+  judges fanning out to `flow.submit(...)` simultaneously occasionally yields
+  one `status=0` receipt with no logs (the contract revert path). Observed
+  in Phase 1 verification. This is why intake fans out with
+  `Promise.allSettled` and surfaces a `failures` array — partial results
+  beat total failure. Do **not** add retries inside `og-storage.js` to mask
+  this; let the failure bubble up so the panel can decide what to do with
+  an incomplete verdict set.
 - Storage fee for tiny payloads is dominated by gas, not the per-sector price
   (~3e-8 0G/sector). Don't over-engineer fee estimation for sanity checks.
