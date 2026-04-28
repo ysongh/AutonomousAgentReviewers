@@ -319,6 +319,15 @@ Type contract:
 - `react/src/config.ts` `AGENTS` is the dashboard's source of truth for
   rendering order and labels of the five services. Its `id` values must
   match `AGENT_IDS` in `shared/config.js` exactly.
+- `react/src/lib/deriveAgentState.ts` `START_TO_COMPLETE` pairs every
+  `*-start` event with its matching `*-complete`. The agent grid uses
+  the open-pair count to decide "working" vs "idle". When you add a new
+  `*-start`/`*-complete` pair to `EVENTS` in `shared/logger.js`, add it
+  here too — otherwise the dashboard will treat the event as momentary
+  and the agent card will not show as working during it. The reducer
+  uses a stack, not a flag, so overlapping pairs (e.g. a judge that has
+  both a `download-start` and an `upload-start` open at the same time)
+  are tracked correctly; do not simplify it back to a single boolean.
 
 - Never commit secrets. `.env` files are gitignored at each subproject's level;
   ship `.env.example` with placeholders.
