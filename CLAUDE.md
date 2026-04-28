@@ -329,6 +329,18 @@ Type contract:
   both a `download-start` and an `upload-start` open at the same time)
   are tracked correctly; do not simplify it back to a single boolean.
 
+Rendering rules:
+- Components under `react/src/components/` are prop-driven and pure (no
+  context reads, no global state). Pages own the data wiring; components
+  own the visuals. Keep that boundary so components stay easy to reason
+  about and reuse.
+- `VerdictGrid` always renders judges in canonical order
+  (technical → originality → skeptic), independent of which judge's
+  HTTP response settled first or what their scores were. Failed judges
+  render as a failure card in the same slot, so the panel reads the
+  same way every run. Do not sort by score, by return time, or by
+  failure status.
+
 - Never commit secrets. `.env` files are gitignored at each subproject's level;
   ship `.env.example` with placeholders.
 - Treat 0G testnet calls as flaky — log entries can take seconds to propagate
