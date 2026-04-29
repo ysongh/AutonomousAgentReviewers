@@ -22,21 +22,37 @@ const PROPAGATION_TIMEOUT_MS = 120_000;
 const FINALIZATION_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 2000;
 
-function requireEnv() {
-  const { PRIVATE_KEY, RPC_URL, INDEXER_URL } = process.env;
-  if (!PRIVATE_KEY || !RPC_URL || !INDEXER_URL) {
-    throw new Error('Missing one of PRIVATE_KEY, RPC_URL, INDEXER_URL in environment');
+function requireNetworkEnv() {
+  const { RPC_URL, INDEXER_URL } = process.env;
+  if (!RPC_URL || !INDEXER_URL) {
+    throw new Error('Missing RPC_URL or INDEXER_URL in environment');
   }
-  return { PRIVATE_KEY, RPC_URL, INDEXER_URL };
+  return { RPC_URL, INDEXER_URL };
 }
 
-async function uploadJSON(obj, { logger, submissionId } = {}) {
-  const { PRIVATE_KEY, RPC_URL, INDEXER_URL } = requireEnv();
+// Legacy shared-wallet signer. Used by bootstrap/ scripts and any other
+// non-agent caller that hasn't migrated to per-agent wallets. Agents must
+// pass their own signer (see shared/agent-wallet.js).
+function getDefaultSigner() {
+  const { RPC_URL } = requireNetworkEnv();
+  const { PRIVATE_KEY } = process.env;
+  if (!PRIVATE_KEY) {
+    throw new Error('PRIVATE_KEY missing — getDefaultSigner() requires the legacy shared key in .env');
+  }
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+  return new ethers.Wallet(PRIVATE_KEY, provider);
+}
+
+async function uploadJSON(obj, signer, { logger, submissionId } = {}) {
+  if (!signer || typeof signer.getAddress !== 'function') {
+    throw new Error('uploadJSON now requires an explicit ethers.Wallet signer as its second argument');
+  }
+  const { INDEXER_URL } = requireNetworkEnv();
   const overallTimer = startTimer();
 
-  const provider = new ethers.JsonRpcProvider(RPC_URL);
-  const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
-  const submitter = await wallet.getAddress();
+  const provider = signer.provider;
+  if (!provider) throw new Error('signer must be connected to a provider');
+  const submitter = await signer.getAddress();
 
   const indexer = new Indexer(INDEXER_URL);
   const [nodes, selectErr] = await indexer.selectNodes(1);
@@ -44,7 +60,7 @@ async function uploadJSON(obj, { logger, submissionId } = {}) {
   const status = await nodes[0].getStatus();
   if (status === null) throw new Error('storage node returned null status');
 
-  const flow = new ethers.Contract(status.networkIdentity.flowAddress, NEW_SUBMIT_ABI, wallet);
+  const flow = new ethers.Contract(status.networkIdentity.flowAddress, NEW_SUBMIT_ABI, signer);
   const flowForEvents = getFlowContract(status.networkIdentity.flowAddress, provider);
   const marketAddr = await flow.market();
   const market = new ethers.Contract(marketAddr, MARKET_ABI, provider);
@@ -77,6 +93,7 @@ async function uploadJSON(obj, { logger, submissionId } = {}) {
     event: EVENTS.UPLOAD_START,
     submissionId,
     rootHash,
+    submitter,
     sizeBytes: bytes.length,
     fee: fee.toString(),
   });
@@ -160,7 +177,7 @@ async function uploadJSON(obj, { logger, submissionId } = {}) {
 }
 
 async function downloadJSON(rootHash, { logger, submissionId } = {}) {
-  const { INDEXER_URL } = requireEnv();
+  const { INDEXER_URL } = requireNetworkEnv();
   const indexer = new Indexer(INDEXER_URL);
   const tmpFile = path.join(os.tmpdir(), `aar-dl-${crypto.randomUUID()}.json`);
   const timer = startTimer();
@@ -185,4 +202,4 @@ async function downloadJSON(rootHash, { logger, submissionId } = {}) {
   }
 }
 
-module.exports = { uploadJSON, downloadJSON };
+module.exports = { uploadJSON, downloadJSON, getDefaultSigner };

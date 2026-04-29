@@ -1,6 +1,6 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
-const { uploadJSON, downloadJSON } = require('./og-storage');
+const { uploadJSON, downloadJSON, getDefaultSigner } = require('./og-storage');
 const { makeLogger } = require('./logger');
 
 async function main() {
@@ -16,7 +16,7 @@ async function main() {
   console.log('--- UPLOAD ---');
   console.log('Payload:', payload);
   const t0 = Date.now();
-  const { rootHash, txHash, txSeq } = await uploadJSON(payload, { logger });
+  const { rootHash, txHash, txSeq } = await uploadJSON(payload, getDefaultSigner(), { logger });
   console.log('Upload OK in', ((Date.now() - t0) / 1000).toFixed(1), 's');
   console.log('  rootHash:', rootHash);
   console.log('  txHash:  ', txHash);

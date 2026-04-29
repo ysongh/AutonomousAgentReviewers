@@ -7,10 +7,11 @@ const { SYSTEM, buildUserPrompt, VERDICT_TOOL_SCHEMA } = require('./prompt');
 
 const AGENT_ID = AGENT_IDS.judgeOriginality;
 
-async function judge({ submissionRootHash, submissionId }, logger) {
+async function judge({ submissionRootHash, submissionId }, { logger, signer }) {
   if (!submissionRootHash || !submissionId) {
     throw new Error('submissionRootHash and submissionId are required');
   }
+  if (!signer) throw new Error('judge-originality handler requires a signer');
 
   logger.info({
     event: EVENTS.SUBMISSION_RECEIVED,
@@ -55,7 +56,7 @@ async function judge({ submissionRootHash, submissionId }, logger) {
     producedAt: new Date().toISOString(),
   });
 
-  const { rootHash: verdictRootHash } = await uploadJSON(verdict, { logger, submissionId });
+  const { rootHash: verdictRootHash } = await uploadJSON(verdict, signer, { logger, submissionId });
   return { verdictRootHash };
 }
 

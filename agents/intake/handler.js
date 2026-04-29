@@ -54,8 +54,9 @@ async function callOneJudge({ judgeId, url }, { submissionRootHash, submissionId
   return { judgeId, verdictRootHash, verdict };
 }
 
-async function intake({ repoUrl }, logger) {
+async function intake({ repoUrl }, { logger, signer }) {
   if (!repoUrl) throw new Error('repoUrl is required');
+  if (!signer) throw new Error('intake requires a signer');
 
   const submissionId = crypto.randomUUID();
   logger.info({ event: EVENTS.SUBMISSION_RECEIVED, submissionId, repoUrl });
@@ -83,7 +84,7 @@ async function intake({ repoUrl }, logger) {
   });
 
   const { rootHash: submissionRootHash } =
-    await uploadJSON(submission, { logger, submissionId });
+    await uploadJSON(submission, signer, { logger, submissionId });
 
   const settled = await Promise.allSettled(
     JUDGES.map((j) => callOneJudge(j, { submissionRootHash, submissionId }, logger)),
