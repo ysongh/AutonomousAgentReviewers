@@ -7,6 +7,7 @@ const { PATHS } = require('./config');
 // dashboard renders must carry one of these in its `event` field. See
 // CLAUDE.md "Log event shape" for the full schema contract.
 const EVENTS = {
+  SUBMISSION_STARTED: 'submission-started',
   SUBMISSION_RECEIVED: 'submission-received',
   GITHUB_FETCH_START: 'github-fetch-start',
   GITHUB_FETCH_COMPLETE: 'github-fetch-complete',
@@ -16,8 +17,16 @@ const EVENTS = {
   DOWNLOAD_COMPLETE: 'download-complete',
   CLAUDE_START: 'claude-start',
   CLAUDE_COMPLETE: 'claude-complete',
+  CLAUDE_REVISE_START: 'claude-revise-start',
+  CLAUDE_REVISE_COMPLETE: 'claude-revise-complete',
   JUDGE_CALL_START: 'judge-call-start',
   JUDGE_CALL_COMPLETE: 'judge-call-complete',
+  REVISE_CALL_START: 'revise-call-start',
+  REVISE_CALL_COMPLETE: 'revise-call-complete',
+  PANEL_AGGREGATE_START: 'panel-aggregate-start',
+  PANEL_AGGREGATE_COMPLETE: 'panel-aggregate-complete',
+  JUDGE_ABSTAIN_BY_CHOICE: 'judge-abstain-by-choice',
+  JUDGE_ABSTAIN_DUE_TO_FAILURE: 'judge-abstain-due-to-failure',
   ERROR: 'error',
 };
 
