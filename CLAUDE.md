@@ -435,5 +435,15 @@ Rendering rules:
   beat total failure. Do **not** add retries inside `og-storage.js` to
   mask this; let the failure bubble up so the panel can decide what to do
   with an incomplete verdict set.
+- Concurrent 0G uploads from different wallets can race on flow contract
+  state. `shared/og-storage.js` prepends a 0–2000ms random jitter
+  (`UPLOAD_JITTER_MAX_MS`) to every `uploadJSON` call to stagger
+  concurrent submissions across blocks (~1.5s Galileo block time). Total
+  per-submission latency added: ~1s on average. Failure rate residual
+  after this mitigation: TBD (measure during Phase 1). Jitter is a
+  delay, not a retry — the no-retries-inside-og-storage rule still
+  applies. Logged per-call as the non-canonical `upload-jitter` event
+  (internal observability only; not part of the dashboard event
+  contract).
 - Storage fee for tiny payloads is dominated by gas, not the per-sector price
   (~3e-8 0G/sector). Don't over-engineer fee estimation for sanity checks.

@@ -21,6 +21,10 @@ const CHUNK_SIZE = 256;
 const PROPAGATION_TIMEOUT_MS = 120_000;
 const FINALIZATION_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 2000;
+// Random pre-submit jitter (ms). Staggers concurrent uploads from different
+// wallets across multiple Galileo blocks (~1.5s block time) to avoid the
+// cross-submitter race in the flow contract. See CLAUDE.md.
+const UPLOAD_JITTER_MAX_MS = 2000;
 
 function requireNetworkEnv() {
   const { RPC_URL, INDEXER_URL } = process.env;
@@ -53,6 +57,10 @@ async function uploadJSON(obj, signer, { logger, submissionId } = {}) {
   const provider = signer.provider;
   if (!provider) throw new Error('signer must be connected to a provider');
   const submitter = await signer.getAddress();
+
+  const jitterMs = Math.floor(Math.random() * UPLOAD_JITTER_MAX_MS);
+  logger?.info({ event: 'upload-jitter', submissionId, submitter, jitterMs });
+  await new Promise((r) => setTimeout(r, jitterMs));
 
   const indexer = new Indexer(INDEXER_URL);
   const [nodes, selectErr] = await indexer.selectNodes(1);
