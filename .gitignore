@@ -1,4 +1,5 @@
 .claude
 .env
+.env.agents
 logs/
 node_modules/
