@@ -6,7 +6,7 @@ const express = require('express');
 const { makeLogger, EVENTS } = require('aar-shared/logger');
 const { PORTS, AGENT_IDS } = require('aar-shared/config');
 const { getAgentSigner } = require('aar-shared/agent-wallet');
-const { judge } = require('./handler');
+const { judge, revise } = require('./handler');
 
 const PORT = PORTS['judge-originality'];
 const AGENT_ID = AGENT_IDS.judgeOriginality;
@@ -22,6 +22,20 @@ app.post('/judge', async (req, res) => {
   const { submissionRootHash, submissionId } = req.body || {};
   try {
     const result = await judge({ submissionRootHash, submissionId }, { logger, signer });
+    res.json(result);
+  } catch (err) {
+    logger.error({ event: EVENTS.ERROR, submissionId, error: err.message, stack: err.stack });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/revise', async (req, res) => {
+  const { submissionId, originalVerdictRootHash, peerVerdictRootHashes } = req.body || {};
+  try {
+    const result = await revise(
+      { submissionId, originalVerdictRootHash, peerVerdictRootHashes },
+      { logger, signer },
+    );
     res.json(result);
   } catch (err) {
     logger.error({ event: EVENTS.ERROR, submissionId, error: err.message, stack: err.stack });

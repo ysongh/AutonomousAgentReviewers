@@ -58,4 +58,82 @@ const VERDICT_TOOL_SCHEMA = {
   required: ['score', 'reasoning', 'evidence'],
 };
 
-module.exports = { SYSTEM, buildUserPrompt, VERDICT_TOOL_SCHEMA };
+const REVISE_APPENDIX = `
+
+You are now in round 2 of panel deliberation. You have already submitted a
+verdict on this submission. You are seeing your peer judges' verdicts for
+the first time.
+
+Decide whether your peers' reasoning materially changes your view:
+  - Hold (revised=false): your original score stands. Omit revisedScore and
+    revisionReasoning. Holding under disagreement is a legitimate, often-
+    correct response — your role on the panel is to bring your specific
+    perspective, not to compromise toward the average.
+  - Revise (revised=true): a peer's argument surfaced something you did not
+    weigh correctly. Set revisedScore (0-10 integer) and revisionReasoning
+    (1-3 sentences explaining what specifically changed).
+
+Do not revise just because peers disagree. Only revise if their reasoning
+exposes a fact or argument you did not have in round 1. Produce your
+decision by calling the revise_verdict tool.`;
+
+const SYSTEM_REVISE = SYSTEM + REVISE_APPENDIX;
+
+function buildRevisePrompt({ ownVerdict, peerVerdicts }) {
+  const evList = (xs) => xs.map((e) => `  - ${e}`).join('\n');
+  const peerSections = peerVerdicts
+    .map(
+      (v) =>
+        `Peer: ${v.agentId}\n` +
+        `- Score: ${v.score}/10\n` +
+        `- Reasoning: ${v.reasoning}\n` +
+        `- Evidence:\n${evList(v.evidence)}`,
+    )
+    .join('\n\n');
+
+  return `Your round-1 verdict on this submission:
+- Score: ${ownVerdict.score}/10
+- Reasoning: ${ownVerdict.reasoning}
+- Evidence:
+${evList(ownVerdict.evidence)}
+
+Your peer judges' round-1 verdicts on the same submission:
+
+${peerSections}
+
+Decide whether to hold (revised=false) or revise (revised=true with new
+score + reasoning). Call the revise_verdict tool.`;
+}
+
+const REVISE_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    revised: {
+      type: 'boolean',
+      description:
+        'true if you are revising your score after seeing peers, false if you are holding your original score.',
+    },
+    revisedScore: {
+      type: 'integer',
+      minimum: 0,
+      maximum: 10,
+      description:
+        'Required iff revised=true: your new 0-10 integer score. Omit if revised=false.',
+    },
+    revisionReasoning: {
+      type: 'string',
+      description:
+        'Required iff revised=true: 1-3 sentences explaining specifically what peer argument changed your view. Omit if revised=false.',
+    },
+  },
+  required: ['revised'],
+};
+
+module.exports = {
+  SYSTEM,
+  buildUserPrompt,
+  VERDICT_TOOL_SCHEMA,
+  SYSTEM_REVISE,
+  buildRevisePrompt,
+  REVISE_TOOL_SCHEMA,
+};
