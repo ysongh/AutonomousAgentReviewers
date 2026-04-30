@@ -19,6 +19,7 @@ const AGENTS = [
   { id: 'judge-technical',   prefix: 'JUDGE_TECHNICAL' },
   { id: 'judge-originality', prefix: 'JUDGE_ORIGINALITY' },
   { id: 'judge-skeptic',     prefix: 'JUDGE_SKEPTIC' },
+  { id: 'aggregator',        prefix: 'AGGREGATOR' },
 ];
 
 async function main() {
@@ -70,7 +71,7 @@ async function main() {
 
   console.log();
   if (allOk) {
-    console.log(`All four agents have >= ${MIN_BALANCE_OG} 0G. Ready to start agents.`);
+    console.log(`All ${AGENTS.length} agents have >= ${MIN_BALANCE_OG} 0G. Ready to start agents.`);
     process.exit(0);
   } else {
     console.log(`At least one agent is below ${MIN_BALANCE_OG} 0G. Top up at https://faucet.0g.ai`);

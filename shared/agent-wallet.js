@@ -6,6 +6,7 @@ const AGENT_KEY_PREFIX = {
   'judge-technical':   'JUDGE_TECHNICAL',
   'judge-originality': 'JUDGE_ORIGINALITY',
   'judge-skeptic':     'JUDGE_SKEPTIC',
+  'aggregator':        'AGGREGATOR',
 };
 
 // One signer per agent per process. start-all.sh loads .env.agents into the
