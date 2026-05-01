@@ -45,7 +45,14 @@ async function main() {
     process.exit(1);
   }
 
-  const { submissionId, submissionRootHash, verdicts = [], failures = [] } = parsed;
+  const {
+    submissionId,
+    submissionRootHash,
+    verdicts = [],
+    failures = [],
+    panelVerdictRootHash = null,
+    panelVerdict = null,
+  } = parsed;
 
   console.log('\n=== PIPELINE COMPLETE in', elapsed, 's ===');
   console.log('submissionId:       ', submissionId);
@@ -55,7 +62,7 @@ async function main() {
 
   for (const entry of verdicts) {
     const { judgeId, verdictRootHash, verdict } = entry;
-    console.log(`\n--- VERDICT [${judgeId}] ---`);
+    console.log(`\n--- ROUND 1 [${judgeId}] ---`);
     console.log('verdictRootHash:', verdictRootHash);
     console.log('score:    ', verdict.score, '/ 10');
     console.log('reasoning:', verdict.reasoning);
@@ -64,15 +71,51 @@ async function main() {
     console.log('producedAt:', verdict.producedAt);
   }
 
+  if (panelVerdict) {
+    console.log('\n=== ROUND 2 (DELIBERATION) ===');
+    for (const r of panelVerdict.round2Revisions) {
+      const tag = r.revisionRootHash === null ? 'ABSTAIN-DUE-TO-FAILURE' : (r.revised ? 'REVISED' : 'HELD');
+      console.log(`\n--- ROUND 2 [${r.agentId}] — ${tag} ---`);
+      if (r.revisionRootHash) console.log('revisionRootHash:', r.revisionRootHash);
+      else console.log('revisionRootHash: (none — judge revise call failed; see logs)');
+      if (r.revised) {
+        console.log('revisedScore:    ', r.revisedScore, '/ 10');
+        console.log('revisionReasoning:', r.revisionReasoning);
+      }
+    }
+
+    console.log('\n=== PANEL VERDICT ===');
+    console.log('panelVerdictRootHash:', panelVerdictRootHash);
+    console.log('finalScores:        ',
+      `technical=${panelVerdict.finalScores.technical}`,
+      `originality=${panelVerdict.finalScores.originality}`,
+      `skeptic=${panelVerdict.finalScores.skeptic}`);
+    console.log('weightedAggregate:  ', panelVerdict.weightedAggregate.toFixed(2), '/ 10');
+    console.log('spread:             ', panelVerdict.spread);
+    console.log('dissent:            ', panelVerdict.dissent);
+    console.log('dissentSummary:     ', panelVerdict.dissentSummary);
+  } else {
+    console.log('\n=== PANEL VERDICT ===');
+    console.log('(no panel verdict — aggregator was skipped or failed)');
+  }
+
   if (failures.length) {
     console.log('\n--- FAILURES ---');
     for (const f of failures) console.log(`  [${f.judgeId}] ${f.error}`);
   }
 
-  if (verdicts.length) {
-    console.log('\nVerify any verdict on 0G:');
+  if (verdicts.length || panelVerdictRootHash) {
+    console.log('\nVerify any artifact on 0G:');
     for (const v of verdicts) {
-      console.log('  node bootstrap/download.js', v.verdictRootHash, ` # ${v.judgeId}`);
+      console.log('  node bootstrap/download.js', v.verdictRootHash, ` # round-1 ${v.judgeId}`);
+    }
+    if (panelVerdict) {
+      for (const r of panelVerdict.round2Revisions) {
+        if (r.revisionRootHash) {
+          console.log('  node bootstrap/download.js', r.revisionRootHash, ` # round-2 ${r.agentId}`);
+        }
+      }
+      console.log('  node bootstrap/download.js', panelVerdictRootHash, ` # panel verdict`);
     }
   }
 }
