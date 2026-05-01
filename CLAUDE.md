@@ -575,12 +575,14 @@ Architectural rules:
 
 Type contract:
 - `react/src/types.ts` mirrors the bus schemas: `LogEvent` matches the
-  canonical shape from `shared/logger.js`, `Verdict` matches the zod
-  schema from `shared/schemas.js`, `SubmissionResponse` matches what
-  `agents/intake/handler.js` returns. If those server-side shapes
-  change, update `types.ts` in the same commit.
+  canonical shape from `shared/logger.js`; `Verdict`, `RevisedVerdict`,
+  and `PanelVerdict` match the zod schemas from `shared/schemas.js`;
+  `SubmissionResponse` matches what `agents/intake/handler.js` returns
+  (including the nullable `panelVerdictRootHash` + `panelVerdict`). If
+  those server-side shapes change, update `types.ts` in the same
+  commit.
 - `react/src/config.ts` `AGENTS` is the dashboard's source of truth for
-  rendering order and labels of the five services. Its `id` values must
+  rendering order and labels of the six services. Its `id` values must
   match `AGENT_IDS` in `shared/config.js` exactly.
 - `react/src/lib/deriveAgentState.ts` `START_TO_COMPLETE` pairs every
   `*-start` event with its matching `*-complete`. The agent grid uses

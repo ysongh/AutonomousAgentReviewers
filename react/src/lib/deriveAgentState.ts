@@ -17,7 +17,10 @@ const START_TO_COMPLETE: Record<string, string> = {
   'upload-start': 'upload-complete',
   'download-start': 'download-complete',
   'claude-start': 'claude-complete',
+  'claude-revise-start': 'claude-revise-complete',
   'judge-call-start': 'judge-call-complete',
+  'revise-call-start': 'revise-call-complete',
+  'panel-aggregate-start': 'panel-aggregate-complete',
 };
 
 // Walk the events for one agent in chronological order and reduce them down

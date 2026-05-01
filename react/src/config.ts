@@ -10,17 +10,19 @@ export const MAX_EVENTS = 500;
 export type AgentDescriptor = {
   id: string;
   label: string;
-  role: 'intake' | 'judge' | 'infra';
+  role: 'intake' | 'judge' | 'aggregator' | 'infra';
 };
 
-// The five Phase 1 services. Order is the rendering order in the agent grid:
-// intake first, judges in the same order as the panel, infra (log-streamer)
-// last. Keep ids in sync with shared/config.js AGENT_IDS.
+// The six Phase 1 services. Order is the rendering order in the agent grid:
+// intake first, judges in the same order as the panel, the aggregator that
+// orchestrates round 2, infra (log-streamer) last. Keep ids in sync with
+// shared/config.js AGENT_IDS.
 export const AGENTS: AgentDescriptor[] = [
   { id: 'intake', label: 'Intake', role: 'intake' },
   { id: 'judge-technical', label: 'Technical', role: 'judge' },
   { id: 'judge-originality', label: 'Originality', role: 'judge' },
   { id: 'judge-skeptic', label: 'Skeptic', role: 'judge' },
+  { id: 'aggregator', label: 'Aggregator', role: 'aggregator' },
   { id: 'log-streamer', label: 'Log Streamer', role: 'infra' },
 ];
 
