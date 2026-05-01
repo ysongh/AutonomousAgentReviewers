@@ -273,8 +273,11 @@ CLI (scripts/submit.js)
 Response shape:
 - `verdicts: Array<{ judgeId, verdictRootHash, verdict }>` — one entry per
   round-1 judge that succeeded. Verdict objects match `JudgeVerdict`.
-- `failures: Array<{ judgeId, error }>` — one entry per round-1 judge that
-  threw or returned an invalid response. Empty on a clean run.
+- `failures: Array<{ judgeId, error }>` — one entry per round-1 judge
+  that threw or returned an invalid response, plus a single
+  `judgeId: 'aggregator'` entry if the aggregator hop itself failed
+  (HTTP error, 503, or panel verdict zod-validation failure on intake's
+  side). Empty on a clean run.
 - `panelVerdictRootHash: string | null` — null iff round 1 had fewer than
   3 successes (aggregator was skipped) or the aggregator returned 503.
 - `panelVerdict: PanelVerdict | null` — same null condition as above.
