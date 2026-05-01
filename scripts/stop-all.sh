@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-ports=(4001 4002 4003 4004 4100)
+ports=(4001 4002 4003 4004 4005 4100)
 
 any_killed=0
 for port in "${ports[@]}"; do

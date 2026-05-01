@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spawn all Phase 1 services (4 agents + log-streamer) and stream their
+# Spawn all Phase 1 services (5 agents + log-streamer) and stream their
 # stdout to this terminal with a per-service prefix. Each service also gets
 # its own logs/<name>.stdout.log for crash diagnostics. Ctrl-C kills everyone.
 
@@ -31,6 +31,7 @@ services=(
   "judge-technical|agents/judge-technical|4002"
   "judge-originality|agents/judge-originality|4003"
   "judge-skeptic|agents/judge-skeptic|4004"
+  "aggregator|agents/aggregator|4005"
   "log-streamer|log-streamer|4100"
 )
 
@@ -80,6 +81,6 @@ for svc in "${services[@]}"; do
 done
 
 echo "Services started. PIDs: ${pids[*]}"
-echo "Ports: intake=4001 technical=4002 originality=4003 skeptic=4004 log-streamer=4100"
+echo "Ports: intake=4001 technical=4002 originality=4003 skeptic=4004 aggregator=4005 log-streamer=4100"
 echo "Ctrl-C to stop. Or run: ./scripts/stop-all.sh"
 wait
