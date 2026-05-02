@@ -530,6 +530,74 @@ input {
 }
 .verdict-card__copy:hover { color: var(--text); border-color: var(--border-strong); }
 
+/* Deliberation row (Phase 2) — additive footer above the card's hash row.
+   Three visual states map to the three deliberation outcomes. The failed
+   variant uses a low-intensity rose tone (informational, not alarming —
+   the round-1 score is still valid, the judge just couldn't deliberate). */
+.deliberation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  /* Reset the border-top to the row's own background. The row sits above
+     the card footer which already has its own divider, so we want the row
+     itself to look like a panel, not a horizontal rule. */
+  border-top: none;
+}
+.deliberation-row em { font-style: normal; color: var(--text-muted); }
+.deliberation-row__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.deliberation-row__toggle {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant: small-caps;
+  letter-spacing: 0.5px;
+}
+.deliberation-row__detail {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.deliberation-row--revised {
+  background: color-mix(in srgb, var(--working) 10%, transparent);
+  color: var(--text);
+}
+.deliberation-row--revised svg { color: var(--working); }
+
+.deliberation-row--held {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.deliberation-row--held svg { color: var(--text-faint); }
+
+/* rose-300-equivalent: informational, not alarming. var(--error-soft) was
+   too loud here — that's reserved for actual failure cards. */
+.deliberation-row--failed {
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  color: var(--text);
+  cursor: help;
+}
+.deliberation-row--failed svg { color: var(--error); }
+
 /* ============================================================
    Agents page
    ============================================================ */
