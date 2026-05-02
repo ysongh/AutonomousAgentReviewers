@@ -636,6 +636,33 @@ input {
   padding: 12px;
   border-right: 1px solid var(--border);
   cursor: help;
+  position: relative;
+}
+/* CSS-only tooltip. Native `title` was unreliable across browsers/OS;
+   this pseudo-element shows immediately on hover/focus and is styled
+   to match the rest of the dashboard. */
+.panel-verdict-card__hero[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--surface);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+.panel-verdict-card__hero:hover::after,
+.panel-verdict-card__hero:focus-visible::after {
+  opacity: 1;
 }
 @media (max-width: 600px) {
   .panel-verdict-card__hero { border-right: none; border-bottom: 1px solid var(--border); }

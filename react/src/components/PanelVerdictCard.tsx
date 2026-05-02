@@ -48,7 +48,12 @@ export function PanelVerdictCard({ panelVerdict, panelVerdictRootHash }: Props) 
 
   return (
     <article className="panel-verdict-card">
-      <div className="panel-verdict-card__hero" title={formula}>
+      <div
+        className="panel-verdict-card__hero"
+        data-tooltip={formula}
+        tabIndex={0}
+        aria-label={`Weighted panel score ${weightedAggregate.toFixed(2)}. Formula: ${formula}`}
+      >
         <div className="panel-verdict-card__score">
           {weightedAggregate.toFixed(2)}
         </div>

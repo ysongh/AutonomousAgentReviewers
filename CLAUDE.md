@@ -622,6 +622,42 @@ Rendering rules:
   same way every run. Do not sort by score, by return time, or by
   failure status.
 
+Phase 2 components (deliberation surface):
+- `RunSummary` — one horizontal line, three segments (round-1 result,
+  deliberation result, panel headline). Renders only when a run has
+  produced a result: either `panelVerdict !== null` OR `failedRound1`
+  is true. Three render branches, in priority order: round-1 race
+  (red headline, "Re-submit recommended"), normal panel (green
+  headline if converged AND clean, amber if dissent OR any
+  abstain-due-to-failure). Defensive `null` if neither applies. The
+  held / revised / abstained counts come from
+  `panelVerdict.round2Revisions` reading `abstainReason` directly —
+  do not recompute from `revisionRootHash` here.
+- `VerdictCard` deliberation footer — additive row below the round-1
+  reasoning + evidence, gated on the optional `revision` prop. Three
+  visual states match the three deliberation outcomes: revised
+  (amber, expandable revisionReasoning behind a button), held by
+  choice (gray, lock icon, no expansion), abstain-due-to-failure
+  (low-intensity rose via `color-mix(... var(--error) 8% ...)` —
+  intentionally weaker than `--error-soft`, which is reserved for
+  the actual failure card; the abstain row is informational, not
+  alarming, because the round-1 score is still valid). The failed
+  variant carries the explanation in a `title` tooltip. Inline SVG
+  icons keep us dependency-free; do not bring in an icon font.
+- `PanelVerdictCard` — full-width card below the verdict grid. Renders
+  only when `panelVerdict !== null`. Hero `weightedAggregate` (2
+  decimals) on the left, score badges + spread + dissent pill +
+  full `dissentSummary` in the middle, mono hash + copy button at
+  the bottom. The hero number has a CSS-only tooltip implemented via
+  `data-tooltip` + `::after`, NOT the native `title` attribute —
+  native title tooltips have a 1-2s delay and some browsers/OSes
+  suppress them entirely, so they're unreliable for a discoverable
+  affordance. The pseudo-element shows immediately on `:hover` and
+  `:focus-visible` (the hero is `tabIndex={0}` for keyboard reach)
+  and is styled with the dashboard's tokens. Score badges and the
+  dissent pill use `color-mix` over `--ok` / `--working` / `--error`
+  — no per-component color tokens were added.
+
 - **ONE round of deliberation.** The aggregator triggers a single
   round-2 revise call per judge, computes the panel verdict, and stops.
   Multi-round deliberation (judge sees revisions, revises again,

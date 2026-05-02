@@ -3,6 +3,8 @@ import { SubmissionForm } from '../components/SubmissionForm';
 import { AgentGrid } from '../components/AgentGrid';
 import { ActivityLog } from '../components/ActivityLog';
 import { VerdictGrid } from '../components/VerdictGrid';
+import { RunSummary } from '../components/RunSummary';
+import { PanelVerdictCard } from '../components/PanelVerdictCard';
 
 export function DashboardPage() {
   const { events, run, submit } = useApp();
@@ -15,6 +17,12 @@ export function DashboardPage() {
   // user watch the swarm wake up. Once the response lands we filter to
   // this run's events only.
   const activeSubmissionId = completed && run.response ? run.response.submissionId : null;
+
+  // RunSummary renders only when a run produced a result — either a panel
+  // verdict OR a confirmed round-1-race failure. Both are derived in
+  // useSubmission; we just gate the render here.
+  const showRunSummary =
+    completed && run.response !== null && (run.response.panelVerdict !== null || run.failedRound1);
 
   return (
     <div className="dashboard-page">
@@ -56,10 +64,30 @@ export function DashboardPage() {
             </header>
           )}
 
+          {showRunSummary && run.response ? (
+            <RunSummary
+              verdicts={run.response.verdicts}
+              failures={run.response.failures}
+              panelVerdict={run.response.panelVerdict}
+              failedRound1={run.failedRound1}
+            />
+          ) : null}
+
           <ActivityLog events={events} submissionId={activeSubmissionId} />
 
           {completed && run.response ? (
-            <VerdictGrid verdicts={run.response.verdicts} failures={run.response.failures} />
+            <VerdictGrid
+              verdicts={run.response.verdicts}
+              failures={run.response.failures}
+              panelVerdict={run.response.panelVerdict}
+            />
+          ) : null}
+
+          {completed && run.response && run.response.panelVerdict ? (
+            <PanelVerdictCard
+              panelVerdict={run.response.panelVerdict}
+              panelVerdictRootHash={run.response.panelVerdictRootHash}
+            />
           ) : null}
         </section>
       ) : null}
