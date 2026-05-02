@@ -599,6 +599,153 @@ input {
 .deliberation-row--failed svg { color: var(--error); }
 
 /* ============================================================
+   Panel verdict card (Phase 2)
+   Full-width card below the three judge cards. Hero score on the left,
+   badges + dissent + summary in the middle, hash + copy at the bottom.
+   ============================================================ */
+.panel-verdict-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  grid-template-areas:
+    "hero main"
+    "footer footer";
+  gap: 24px;
+  align-items: center;
+}
+@media (max-width: 600px) {
+  .panel-verdict-card {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "hero"
+      "main"
+      "footer";
+    text-align: center;
+  }
+}
+
+.panel-verdict-card__hero {
+  grid-area: hero;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  cursor: help;
+}
+@media (max-width: 600px) {
+  .panel-verdict-card__hero { border-right: none; border-bottom: 1px solid var(--border); }
+}
+.panel-verdict-card__score {
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -2px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.panel-verdict-card__label {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant: small-caps;
+  letter-spacing: 0.5px;
+}
+
+.panel-verdict-card__main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.panel-verdict-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.panel-verdict-card__spread {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant: small-caps;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
+}
+.panel-verdict-card__summary {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.panel-verdict-card__footer {
+  grid-area: footer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.panel-verdict-card__hash {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Score badges — same green/amber/red gradient tokens used elsewhere. */
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+}
+.score-badge--good {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+}
+.score-badge--mid {
+  color: var(--working);
+  background: color-mix(in srgb, var(--working) 14%, transparent);
+  border-color: color-mix(in srgb, var(--working) 35%, transparent);
+}
+.score-badge--bad {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+}
+
+/* Dissent pill — distinct shape (full pill) to read as a status flag, not
+   a numeric score. Same tone semantics as the run-summary headline. */
+.dissent-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.dissent-pill--converged {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.dissent-pill--dissent {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+/* ============================================================
    Agents page
    ============================================================ */
 .agents-page { display: flex; flex-direction: column; gap: 20px; }
