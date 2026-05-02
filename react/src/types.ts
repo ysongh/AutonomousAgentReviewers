@@ -50,6 +50,14 @@ export type RevisedVerdict = {
 // Mirrors PanelVerdict in shared/schemas.js. revisionRootHash is null when the
 // judge's /revise call failed and the aggregator counted them as
 // abstain-due-to-failure.
+//
+// abstainReason is CLIENT-DERIVED, not on the wire. The on-chain panel verdict
+// records the outcome only (`revised: false`, no score); the cause lives in
+// the aggregator's log (`judge-abstain-by-choice` vs
+// `judge-abstain-due-to-failure`). Since the dashboard doesn't read the log
+// retroactively, we infer the reason from `revisionRootHash`: null means the
+// revise call failed (forced abstain), non-null means the judge chose to hold.
+// Normalized once in useSubmission so downstream components don't recompute.
 export type PanelVerdict = {
   submissionId: string;
   submissionRootHash: string;
@@ -66,6 +74,7 @@ export type PanelVerdict = {
     revisedScore?: number;
     revisionReasoning?: string;
     revisionRootHash: string | null;
+    abstainReason?: 'held' | 'failure';
   }>;
   finalScores: {
     technical: number;
@@ -97,6 +106,13 @@ export type RunState = {
   finishedAt: number | null;
   response: SubmissionResponse | null;
   errorMessage: string | null;
+  // Derived in useSubmission once the response lands. failedRound1 is true
+  // when intake skipped aggregation because <3 round-1 verdicts succeeded
+  // (panelVerdict will also be null in that case). failureSummary is a
+  // human-readable one-liner pulled from `response.failures` for the
+  // RunSummary component to render on the round-1-race path.
+  failedRound1: boolean;
+  failureSummary: string | null;
 };
 
 export type AgentState = 'idle' | 'working' | 'errored';

@@ -581,6 +581,22 @@ Type contract:
   (including the nullable `panelVerdictRootHash` + `panelVerdict`). If
   those server-side shapes change, update `types.ts` in the same
   commit.
+- One field on `PanelVerdict.round2Revisions[]` is **client-derived**,
+  not on the wire: `abstainReason: 'held' | 'failure'`. The on-chain
+  panel records outcome only (`revised: false`, no score); the cause
+  lives in the aggregator's log (`judge-abstain-by-choice` vs
+  `judge-abstain-due-to-failure`). The dashboard does not read the log
+  retroactively, so `useSubmission` infers the reason from
+  `revisionRootHash`: `null` → `'failure'`, non-null → `'held'`. The
+  tagging happens once at response-parse time; downstream components
+  must read `abstainReason`, not recompute from `revisionRootHash`,
+  so the rule lives in one place.
+- `RunState` carries two derived fields populated by `useSubmission`
+  alongside the raw `response`: `failedRound1` (true iff
+  `panelVerdict === null && verdicts.length < 3` — intake skipped
+  aggregation) and `failureSummary` (a human-readable join of
+  `response.failures` for the `RunSummary` line). Renderers use
+  these instead of recomputing from `response`.
 - `react/src/config.ts` `AGENTS` is the dashboard's source of truth for
   rendering order and labels of the six services. Its `id` values must
   match `AGENT_IDS` in `shared/config.js` exactly.
