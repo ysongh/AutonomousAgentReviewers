@@ -330,6 +330,46 @@ input {
 .run-summary__value { font-family: var(--mono); font-size: 12px; word-break: break-all; }
 
 /* ============================================================
+   Run summary one-liner (Phase 2)
+   One horizontal line above the verdict cards. The right-most segment
+   carries the outcome tone (ok = converged clean, warn = dissent or
+   forced abstain, err = round-1 race).
+   ============================================================ */
+.run-summary-line {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  color: var(--text);
+}
+.run-summary-line__seg { color: var(--text); }
+.run-summary-line__sep { color: var(--text-faint); }
+.run-summary-line__headline {
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  margin-left: auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+.run-summary-line__headline--ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.run-summary-line__headline--warn {
+  color: var(--working);
+  background: color-mix(in srgb, var(--working) 14%, transparent);
+}
+.run-summary-line__headline--err {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+/* ============================================================
    Activity log
    ============================================================ */
 .activity-log {
