@@ -214,6 +214,15 @@ reasoning, evidence: string[] }`). Tool_use is the contract — if Claude
 fails to return valid tool input, fail loudly. Do not add prose-parsing
 fallbacks.
 
+Round-2 revise prompts permit evidence-based revision; round-1 prompts
+unchanged. The Day 5 softening replaced an explicit hold-bias in each
+judge's `REVISE_APPENDIX` with an "evidence test" — revise iff a peer
+cited concrete evidence (file/quote/dependency for technical, prior-art
+reference for originality, gap/stub/overclaim *or* concrete delivery
+resolving a flagged gap for skeptic) the judge did not weigh in round 1.
+Abstention (revised=false) remains a first-class outcome; framing or
+calibration disagreements still hold.
+
 ## Inter-agent flow (the bus)
 
 Phase 1 pipeline — round-1 fan-out, round-2 deliberation through the

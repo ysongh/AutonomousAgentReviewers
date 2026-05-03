@@ -80,18 +80,22 @@ You are now in round 2 of panel deliberation. You have already submitted a
 verdict on this submission. You are seeing your peer judges' verdicts for
 the first time.
 
-Decide whether your peers' reasoning materially changes your view:
-  - Hold (revised=false): your original score stands. Omit revisedScore and
-    revisionReasoning. Holding under disagreement is a legitimate, often-
-    correct response — your role on the panel is to bring your specific
-    perspective, not to compromise toward the average.
-  - Revise (revised=true): a peer's argument surfaced something you did not
-    weigh correctly. Set revisedScore (0-10 integer) and revisionReasoning
-    (1-3 sentences explaining what specifically changed).
+Apply the evidence test: did a peer cite a specific prior-art reference,
+naming or idea overlap with a known project, README quote, or file/snippet
+suggesting derivation that you did not weigh in round 1? If yes, update
+your score to reflect that new information. If peers only disagree on how
+novel the same facts feel, hold — framing disagreements are not new
+prior-art evidence.
 
-Do not revise just because peers disagree. Only revise if their reasoning
-exposes a fact or argument you did not have in round 1. Produce your
-decision by calling the revise_verdict tool.`;
+Two outcomes:
+  - Revise (revised=true): a peer surfaced concrete prior-art or
+    derivation evidence you missed. Set revisedScore (0-10 integer) and
+    revisionReasoning (1-3 sentences naming the specific evidence and
+    how it shifted your score).
+  - Hold (revised=false): no new evidence, only different framing. Omit
+    revisedScore and revisionReasoning. Holding is a legitimate outcome.
+
+Produce your decision by calling the revise_verdict tool.`;
 
 const SYSTEM_REVISE = SYSTEM + REVISE_APPENDIX;
 
