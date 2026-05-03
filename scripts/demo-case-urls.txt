@@ -1,0 +1,11 @@
+# Clean / converged candidates (small, well-known)
+https://github.com/sindresorhus/is
+https://github.com/sindresorhus/slugify
+
+# Dissent candidates (mature library framing problem)
+https://github.com/sindresorhus/awesome-nodejs
+https://github.com/expressjs/express
+
+# Borderline / revision candidates (likely to surface peer evidence)
+https://github.com/karpathy/nanoGPT
+https://github.com/jakearchibald/svgomg
