@@ -467,6 +467,11 @@ To prove a verdict (round-1, round-2, or panel) is genuinely on 0G:
 node bootstrap/download.js <rootHash>
 ```
 
+Curated demo cases (with stable panel hashes per category) live in
+`docs/demo-cases.md`. Use `scripts/demo-cases.js` to re-run the
+curation pass against `scripts/demo-case-urls.txt` if the hashes need
+to be refreshed.
+
 ## Log event shape
 
 Every agent logs JSONL via `shared/logger.js` (pino) to `logs/<agentId>.jsonl`.

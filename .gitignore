@@ -3,3 +3,4 @@
 .env.agents
 logs/
 node_modules/
+scripts/demo-case-results.jsonl
