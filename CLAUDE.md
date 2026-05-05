@@ -547,6 +547,17 @@ Endpoints:
   before going live. Sends a `: ping` comment every 15s as a keepalive.
   Each event body is a single JSONL log entry as `data: {...}\n\n`.
 - `GET /health` — `{ status: 'ok', clients, buffered }`.
+- `GET /verify/:rootHash` — read-through proxy for the dashboard's
+  "Verify on 0G" affordance. Validates the param against
+  `^0x[0-9a-fA-F]{64}$` (400 if not), calls
+  `shared/og-storage.downloadJSON` with no signer, and returns
+  `{ rootHash, retrievedAt, indexer, content }` on success or 502
+  `{ error }` on failure. Exists so the browser doesn't need chain RPC
+  or ethers — the SDK/contract workaround stays in one place. Reached
+  from the dashboard through the Vite dev proxy (`/verify` →
+  `127.0.0.1:4100`), same pattern as `/events`. Standalone
+  request/response, not part of the SSE stream. Read-only by
+  construction; do not extend it to mutating routes.
 
 Design rules:
 - The ring buffer holds the last 200 entries the streamer has *observed

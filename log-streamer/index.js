@@ -6,6 +6,9 @@ const express = require('express');
 const chokidar = require('chokidar');
 const { makeLogger, EVENTS } = require('aar-shared/logger');
 const { PORTS, AGENT_IDS, PATHS } = require('aar-shared/config');
+const { downloadJSON } = require('aar-shared/og-storage');
+
+const ROOT_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 
 const PORT = PORTS['log-streamer'];
 const AGENT_ID = AGENT_IDS.logStreamer;
@@ -148,6 +151,29 @@ app.get('/events', (req, res) => {
     clients.delete(res);
     logger.info({ event: 'sse-client-disconnected', clients: clients.size });
   });
+});
+
+// Read-only proxy so the dashboard can render the actual JSON for a root
+// hash without doing chain RPC from the browser. Reuses shared/og-storage
+// so the workaround lives in exactly one place. The dashboard reaches
+// this through the Vite dev proxy (/verify → 4100), same as /events.
+app.get('/verify/:rootHash', async (req, res) => {
+  const { rootHash } = req.params;
+  if (!ROOT_HASH_RE.test(rootHash)) {
+    return res.status(400).json({ error: 'rootHash must be 0x-prefixed 64-char hex' });
+  }
+  try {
+    const content = await downloadJSON(rootHash, { logger });
+    res.json({
+      rootHash,
+      retrievedAt: new Date().toISOString(),
+      indexer: process.env.INDEXER_URL || null,
+      content,
+    });
+  } catch (err) {
+    logger.warn({ event: 'verify-failed', rootHash, error: err.message });
+    res.status(502).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
