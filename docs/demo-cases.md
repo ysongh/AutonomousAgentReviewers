@@ -13,11 +13,23 @@ The hashes below are stable on 0G Galileo and can be re-downloaded with
 
 ## Converged clean
 
-No candidate surfaced in Day 5 curation pass. All three panel-producing
-runs were `dissent=true` (spread=6 in every case), driven by a
-recurring originality-vs-craft split between `judge-originality` (low)
-and `judge-technical` / `judge-skeptic` (high) on mature, widely-known
-libraries.
+No candidate surfaced after two passes plus one targeted retry (initial
+6-URL pass + user-curated 1-URL follow-up + 1-URL retry of the same
+follow-up). The follow-up targeted a recently-built personal project
+(ysongh/NilDataWallet) on the theory that novel hackathon-shaped repos
+would dodge the "mature library = not novel" originality penalty that
+drove the dissent in pass one. Both attempts hit a round-1-race failure
+before the aggregator was reached: the first lost `judge-skeptic` to a
+flow-contract `status=0` revert, the retry lost `judge-originality` to
+the same revert shape (different judge, same root cause). Across both
+NilDataWallet runs the surviving judges scored 4–5 with closely aligned
+reasoning (technical 5 + originality 7 first run, technical 5 + skeptic
+4 retry), so the panel had a plausible converged-low trajectory — it
+just never landed three round-1 verdicts in the same run. All three
+panel-producing runs across the curation work were dissents; no
+converged-clean case surfaced under current testnet conditions. Demo
+will lean on the dissent case (sindresorhus/is) as primary; graceful
+degradation remains uncovered — see below.
 
 ## Dissent
 

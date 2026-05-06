@@ -681,7 +681,20 @@ Phase 2 components (deliberation surface):
   `:focus-visible` (the hero is `tabIndex={0}` for keyboard reach)
   and is styled with the dashboard's tokens. Score badges and the
   dissent pill use `color-mix` over `--ok` / `--working` / `--error`
-  — no per-component color tokens were added.
+  — no per-component color tokens were added. Footer also has a
+  "Verify on 0G" button next to the copy-hash button that opens
+  `VerifyOn0GModal`.
+- `VerifyOn0GModal` — overlay + centered card triggered from
+  `PanelVerdictCard`'s footer. Fetches `/verify/<rootHash>` (which the
+  Vite dev proxy routes to log-streamer:4100), shows a loading
+  spinner, then renders the retrieved JSON in a `<pre><code>` block
+  with metadata (retrievedAt, indexer URL, copyable hash) above it.
+  Esc-to-close and click-on-overlay-to-close. On error, shows the
+  message and a Retry button that re-fires the fetch. Browser-only —
+  must NOT call ethers or chain RPC directly; the SDK/contract
+  workaround stays behind log-streamer's `/verify` endpoint. No
+  syntax-highlighter library — `JSON.stringify(..., null, 2)` in a
+  monospace `<pre>` is enough; do not pull in a highlighter.
 
 - **ONE round of deliberation.** The aggregator triggers a single
   round-2 revise call per judge, computes the panel verdict, and stops.
