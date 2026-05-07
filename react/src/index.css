@@ -858,6 +858,65 @@ input {
 .not-found__link:hover { text-decoration: underline; }
 
 /* ============================================================
+   Deliberating skeleton (round-1 done → panel verdict pending)
+   ============================================================ */
+.deliberating-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+}
+.deliberating-card__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.deliberating-card__pulse {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  animation: deliberating-pulse 1.6s ease-in-out infinite;
+}
+.deliberating-card__sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.deliberating-card__bar {
+  width: 100%;
+  max-width: 480px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+  position: relative;
+}
+.deliberating-card__bar-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: deliberating-slide 1.4s ease-in-out infinite;
+}
+@keyframes deliberating-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@keyframes deliberating-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ============================================================
    Verify-on-0G modal
    ============================================================ */
 .verdict-card__verify {

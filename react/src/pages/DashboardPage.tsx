@@ -5,6 +5,9 @@ import { ActivityLog } from '../components/ActivityLog';
 import { VerdictGrid } from '../components/VerdictGrid';
 import { RunSummary } from '../components/RunSummary';
 import { PanelVerdictCard } from '../components/PanelVerdictCard';
+import { DeliberatingCard } from '../components/DeliberatingCard';
+
+const JUDGE_AGENT_IDS = ['judge-technical', 'judge-originality', 'judge-skeptic'];
 
 export function DashboardPage() {
   const { events, run, submit } = useApp();
@@ -12,6 +15,34 @@ export function DashboardPage() {
   const isRunning = run.status === 'submitting';
   const showRunSection = run.status !== 'idle';
   const completed = run.status === 'complete' && run.response !== null;
+
+  // Skeleton gate: while the response is in flight, derive "round-1 done,
+  // panel pending" from the SSE feed. We can't filter by submissionId yet
+  // (intake assigns it server-side and it isn't on the wire until the
+  // response lands), so we use run.startedAt as a cutoff and count
+  // distinct judge-call-complete events for the three judges. The skeleton
+  // hides as soon as panel-aggregate-complete arrives, even before the
+  // HTTP response settles, so the swap to the real PanelVerdictCard is
+  // visually clean.
+  const showDeliberating = (() => {
+    if (!isRunning || run.startedAt === null) return false;
+    const since = run.startedAt;
+    let panelDone = false;
+    const judgesDone = new Set<string>();
+    for (const ev of events) {
+      const ts = ev.timestamp ? Date.parse(ev.timestamp) : NaN;
+      if (!Number.isFinite(ts) || ts < since) continue;
+      if (ev.event === 'panel-aggregate-complete') panelDone = true;
+      if (
+        ev.event === 'judge-call-complete' &&
+        ev.agentId &&
+        JUDGE_AGENT_IDS.includes(ev.agentId)
+      ) {
+        judgesDone.add(ev.agentId);
+      }
+    }
+    return judgesDone.size >= 3 && !panelDone;
+  })();
   // While submitting, we don't yet know the submissionId (intake generates
   // it server-side), so the activity log shows the full feed and lets the
   // user watch the swarm wake up. Once the response lands we filter to
@@ -88,6 +119,8 @@ export function DashboardPage() {
               panelVerdict={run.response.panelVerdict}
               panelVerdictRootHash={run.response.panelVerdictRootHash}
             />
+          ) : showDeliberating ? (
+            <DeliberatingCard />
           ) : null}
         </section>
       ) : null}

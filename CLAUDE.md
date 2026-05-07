@@ -684,6 +684,21 @@ Phase 2 components (deliberation surface):
   — no per-component color tokens were added. Footer also has a
   "Verify on 0G" button next to the copy-hash button that opens
   `VerifyOn0GModal`.
+- `DeliberatingCard` — skeleton shown in the same slot as
+  `PanelVerdictCard` between round-1 completion and panel verdict
+  landing (~30-60s). Pulsing "Deliberating…" headline, subline, and
+  an indeterminate sliding-gradient progress bar (pure CSS keyframes,
+  no library). Pure presentational; the gate lives in
+  `DashboardPage`. Why the gate is in the page, not the hook: while
+  `run.status === 'submitting'`, the response hasn't landed yet, so
+  `submissionId` and `verdicts` are not available. The page derives
+  "round-1 done, panel pending" from the SSE feed instead — filter
+  events by `ts >= run.startedAt`, count distinct
+  `judge-call-complete` events across the three judge agentIds, and
+  hide as soon as `panel-aggregate-complete` arrives. The skeleton
+  vanishes the moment the panel verdict event lands, even before the
+  HTTP response settles, so the swap to the real `PanelVerdictCard`
+  is visually clean.
 - `VerifyOn0GModal` — overlay + centered card triggered from
   `PanelVerdictCard`'s footer. Fetches `/verify/<rootHash>` (which the
   Vite dev proxy routes to log-streamer:4100), shows a loading
