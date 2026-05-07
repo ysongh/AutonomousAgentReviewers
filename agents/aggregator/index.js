@@ -13,6 +13,33 @@ const AGENT_ID = AGENT_IDS.aggregator;
 const logger = makeLogger(AGENT_ID);
 const signer = getAgentSigner(AGENT_ID);
 
+// --simulate-revise-failure=<agentId>  OR  SIMULATE_REVISE_FAILURE=<agentId>
+// Forces the targeted judge's /revise call to throw, so the dashboard's
+// abstain-due-to-failure rendering can be exercised on demand. Same code
+// path as a real failure: synthetic abstention, JUDGE_ABSTAIN_DUE_TO_FAILURE
+// log event, revisionRootHash:null in the panel. Temporary — tracked in
+// TODO.md for removal before submission.
+const VALID_SIMULATE_TARGETS = new Set([
+  AGENT_IDS.judgeTechnical,
+  AGENT_IDS.judgeOriginality,
+  AGENT_IDS.judgeSkeptic,
+]);
+function parseSimulateFailure() {
+  const cliArg = process.argv.find((a) => a.startsWith('--simulate-revise-failure='));
+  const fromCli = cliArg ? cliArg.split('=')[1] : null;
+  const fromEnv = process.env.SIMULATE_REVISE_FAILURE || null;
+  const value = fromCli || fromEnv;
+  if (!value) return null;
+  if (!VALID_SIMULATE_TARGETS.has(value)) {
+    console.warn(
+      `[${AGENT_ID}] ignoring --simulate-revise-failure=${value}: must be one of ${[...VALID_SIMULATE_TARGETS].join(', ')}`,
+    );
+    return null;
+  }
+  return value;
+}
+const simulateFailure = parseSimulateFailure();
+
 const app = express();
 app.use(express.json({ limit: '256kb' }));
 
@@ -23,7 +50,7 @@ app.post('/aggregate', async (req, res) => {
   try {
     const result = await aggregate(
       { submissionId, submissionRootHash, verdictRootHashes },
-      { logger, signer },
+      { logger, signer, simulateFailure },
     );
     res.json(result);
   } catch (err) {
@@ -38,4 +65,9 @@ app.listen(PORT, async () => {
   const address = await signer.getAddress();
   logger.info({ event: 'agent-listening', port: PORT, signerAddress: address });
   console.log(`[${AGENT_ID}] listening on :${PORT} (signer ${address})`);
+  if (simulateFailure) {
+    const banner = `⚠️  RUNNING WITH --simulate-revise-failure=${simulateFailure}. This is a debug flag and must NOT ship in the final demo build.`;
+    console.warn(`[${AGENT_ID}] ${banner}`);
+    logger.warn({ event: 'simulate-revise-failure-active', target: simulateFailure });
+  }
 });

@@ -121,9 +121,18 @@ async function callRevise(judgeKey, body, submissionId, logger) {
   return { judgeKey, revisionRootHash, revised };
 }
 
-async function runDeliberation(round1, submissionId, logger) {
+async function runDeliberation(round1, submissionId, logger, simulateFailure) {
   const settled = await Promise.allSettled(
     JUDGE_KEYS.map((key) => {
+      // Debug escape hatch: --simulate-revise-failure=<judge-agent-id>
+      // makes the targeted judge's /revise reject before any HTTP call,
+      // so the existing rejected branch below produces the same synthetic
+      // abstention a real failure would. Tracked in TODO.md for removal.
+      if (simulateFailure && JUDGE_AGENT_ID[key] === simulateFailure) {
+        return Promise.reject(
+          new Error(`simulated revise failure for ${JUDGE_AGENT_ID[key]} (--simulate-revise-failure)`),
+        );
+      }
       const peerKeys = JUDGE_KEYS.filter((k) => k !== key);
       const body = {
         submissionId,
@@ -251,7 +260,7 @@ async function uploadPanelWithRetry(panelVerdict, signer, submissionId, logger) 
 
 async function aggregate(
   { submissionId, submissionRootHash, verdictRootHashes },
-  { logger, signer },
+  { logger, signer, simulateFailure },
 ) {
   if (!submissionId) throw new Error('submissionId is required');
   if (!submissionRootHash) throw new Error('submissionRootHash is required');
@@ -273,7 +282,7 @@ async function aggregate(
   });
 
   const round1 = await downloadRound1(verdictRootHashes, submissionId, logger);
-  const revisions = await runDeliberation(round1, submissionId, logger);
+  const revisions = await runDeliberation(round1, submissionId, logger, simulateFailure);
 
   const finalScores = computeFinalScores(round1, revisions);
   const weightedAggregate = computeAggregate(finalScores);

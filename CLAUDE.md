@@ -744,3 +744,21 @@ Phase 2 components (deliberation surface):
   contract).
 - Storage fee for tiny payloads is dominated by gas, not the per-sector price
   (~3e-8 0G/sector). Don't over-engineer fee estimation for sanity checks.
+- `agents/aggregator` supports `--simulate-revise-failure=<agentId>` (or
+  `SIMULATE_REVISE_FAILURE=<agentId>`) for testing the dashboard's
+  abstain-due-to-failure rendering. Used once during Day 5 verification.
+  Tracked in `TODO.md` for removal before submission.
+
+## Known testnet quirks
+
+- **Cross-submitter race rate observation**: across multiple curation
+  passes, status=0 reverts have hit different judges (technical,
+  originality, skeptic) without a wallet-specific pattern. The Day 5
+  NilDataWallet retry confirmed the failure is not skeptic-bound —
+  judge-originality reverted instead. Signer construction
+  (`shared/agent-wallet.js`) is symmetric across all judges; round-1
+  fan-out order in `agents/intake/handler.js` is deterministic
+  `['technical', 'originality', 'skeptic']` but the failure
+  distribution is not. Treat the failure as a chain-side race, not a
+  per-wallet or per-judge issue. No code change warranted on current
+  evidence.
