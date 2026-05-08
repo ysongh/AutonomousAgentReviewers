@@ -456,11 +456,20 @@ run was backgrounded or crashed.
 `scripts/submit.js` POSTs to intake at `:4001/submit` and prints the
 `submissionRootHash`, the round-1 verdicts, the round-2 revisions /
 abstentions, the final scores, weighted aggregate, dissent flag +
-summary, and `panelVerdictRootHash`. Expected end-to-end time on
-Galileo: ~50-65s with the deliberation round added (Day 3 baseline
-without deliberation was ~35-40s). All three round-1 judges run
-concurrently; all three round-2 revisions run concurrently; total time
-should not multiply with the number of judges.
+summary, and `panelVerdictRootHash`. Pipeline duration on a clean run
+varies with submission size:
+- Small repos (<10KB SubmissionRecord): typically 40-75s
+- Medium repos (10-30KB): typically 70-80s
+- Large repos (>50KB): typically 120-140s
+
+The dominant variable is the combined cost of 0G upload time and per-judge
+LLM call time, both of which scale with payload size — 0G upload is
+roughly flat in the small/medium band (~12s) but the LLM judges spend
+proportionally more time reasoning over a 70KB README than a 1KB one.
+Numbers above are based on Day 5 measurements on the Galileo testnet.
+All three round-1 judges run concurrently; all three round-2 revisions
+run concurrently; total time should not multiply with the number of
+judges.
 
 To prove a verdict (round-1, round-2, or panel) is genuinely on 0G:
 ```
@@ -762,3 +771,11 @@ Phase 2 components (deliberation surface):
   distribution is not. Treat the failure as a chain-side race, not a
   per-wallet or per-judge issue. No code change warranted on current
   evidence.
+- **Payload-sensitive revert rate**: the Galileo flow contract's
+  cross-submitter revert rate appears payload-sensitive. Smaller
+  SubmissionRecord uploads (<20KB) empirically show lower revert rates
+  than larger ones. Demo case selection in `docs/demo-cases.md` prefers
+  small/medium repos for reliability. This is an observation from Day 5
+  curation passes, not a guarantee — the residual ~8% baseline
+  per-upload rate from Phase 0 still applies in aggregate, and Day 5
+  passes observed rates closer to ~28% under sustained-load testing.
