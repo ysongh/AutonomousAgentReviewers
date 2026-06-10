@@ -1,0 +1,8 @@
+.env
+node_modules/
+*.mp4
+frames/
+audio.*
+
+# verdict outputs (the spike's *.json results) — but NOT package.json / lockfiles
+verdict-*.json

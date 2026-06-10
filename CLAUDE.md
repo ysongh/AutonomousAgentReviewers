@@ -32,6 +32,32 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   (`SynapseOptions = { account, source, chain?, transport? }`). The
   Calibration chain object is built into the SDK (`import { calibration }`).
   Most tutorials in circulation are ethers-era and wrong against this build.
+- `bootstrap-demojudge/` — Phase 1 spike for the proposed **Demo Judge**
+  feature: prove the multimodal review pipeline in isolation. `mp4 in →
+  keyframes + transcript out → ONE Claude multimodal call →
+  DemoVerdict JSON`. No agents, no Filecoin, no 0G, no pipeline
+  integration. Self-contained: own `package.json`, own `node_modules`,
+  own `.env`. Uses `pnpm`. **Spike only — NOT wired into the agents/
+  pipeline.** See `bootstrap-demojudge/README.md`. Pipeline:
+  `review-demo.js <mp4>` → Stage A extracts evenly-spaced keyframes with
+  ffmpeg (`min(14, ceil(duration/15))`, **hard-capped at 14**, 768px
+  wide, JPEG) recording each frame's timestamp; Stage B rips 16kHz mono
+  audio and transcribes via OpenAI Whisper (`openai` SDK, requires
+  `OPENAI_API_KEY`); Stage C makes ONE forced-tool_use Claude call
+  (`claude-sonnet-4-6`, same model as the judges) with the frames +
+  transcript, capturing `usage.input_tokens` exactly. The headline
+  measurement is **input tokens per call vs. the 30K tokens/min Anthropic
+  org rate limit** — the Demo Judge is deliberately sequenced after
+  round 1 to get its own rate window. Constraints: ONE Claude call, no
+  retries, no multi-pass summarization. Footguns found: `ffmpeg` is
+  vendored via `ffmpeg-static`/`ffprobe-static` (no system install), but
+  **pnpm sandboxes postinstall scripts** so the binary download is
+  skipped until `ffmpeg-static` is allowlisted in
+  `package.json`'s `pnpm.onlyBuiltDependencies`; and pre-seeded dep
+  ranges silently pulled stale SDK majors (openai v4, anthropic v0.40) —
+  pin `@latest` (openai 6.x, anthropic 0.102+) and inspect the installed
+  audio-transcription API rather than trusting tutorials, same discipline
+  as the 0G/Filecoin SDK lessons.
 - `shared/` — Common modules used by every agent: `og-storage.js` (the
   productionized 0G workaround — see below), `agent-wallet.js` (per-agent
   signer factory — see Per-agent wallets below), `schemas.js` (zod),
