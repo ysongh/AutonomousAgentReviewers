@@ -2,3 +2,5 @@
 node_modules/
 *.mp4
 downloaded.*
+
+upload-result.json
