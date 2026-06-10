@@ -63,7 +63,16 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   ranges silently pulled stale SDK majors (openai v4, anthropic v0.40) —
   pin `@latest` (openai 6.x, anthropic 0.102+) and inspect the installed
   audio-transcription API rather than trusting tutorials, same discipline
-  as the 0G/Filecoin SDK lessons.
+  as the 0G/Filecoin SDK lessons. **Spike result (measured on a real 3:51
+  narrated demo): one Claude call = 8,550 input tokens (~28% of the 30K/min
+  window, comfortable margin), ~$0.064/review (Whisper $0.023 + Claude
+  $0.041), ~37s wall-clock.** Verdict quality verified — evidence
+  timestamps matched the actual frames down to a root-hash prefix, and
+  `claims_check` correctly separated shown vs. asserted-only. Phase 2
+  conclusions: token budget is a non-issue, but the Demo Judge MUST run
+  async (off the synchronous submit path — ~23s of that is the LLM call),
+  and the `Frame N — t=MM:SS` labeling contract should be kept (the model
+  cites frame-aligned timestamps verbatim, making evidence verifiable).
 - `shared/` — Common modules used by every agent: `og-storage.js` (the
   productionized 0G workaround — see below), `agent-wallet.js` (per-agent
   signer factory — see Per-agent wallets below), `schemas.js` (zod),

@@ -19,7 +19,10 @@ The org has a **30K tokens/min Anthropic rate limit** (already hit once). The
 Demo Judge is deliberately sequenced **after round 1** so it gets its own rate
 window. The critical measurement of this spike is the **input token count of
 the single Claude call** — does one Demo Judge review fit inside the 30K/min
-budget with comfortable margin? (Measured: **TBD** — filled in after the run.)
+budget with comfortable margin? **Measured: 8,550 input tokens — 28% of the
+window, ~21,450 headroom. Fits comfortably alone** (you could run ~3 such calls
+in one minute before hitting the cap, and the Demo Judge gets its own
+post-round-1 window anyway).
 
 ## Findings so far (the inspect-don't-assume discipline)
 
@@ -79,30 +82,61 @@ Writes `verdict-<timestamp>.json` and pretty-prints the verdict to stdout.
 `evidence` (≥3 × `{ timestamp: "MM:SS", observation }`), `claims_check`
 (`{ claim, verdict: "shown"|"asserted-only"|"contradicted", timestamp }`).
 
-> **Status:** Stage A implemented and runnable; Stages B and C are added in
-> subsequent steps. Sections below are filled in as stages complete.
+## Results
 
-## Results (TBD)
+Run on `Autonomous Agent Reviewers.mp4` — a real 3:51 narrated demo of AAR
+itself (slide intro + live dashboard walkthrough).
 
 | Metric | Value |
 |---|---|
-| Test video (duration / size) | TBD |
-| Stage A wall-clock | TBD |
-| Frames extracted / total KB | TBD |
-| Stage B wall-clock / transcript chars | TBD |
-| Stage C wall-clock | TBD |
-| Total wall-clock | TBD |
-| **Claude `input_tokens`** | **TBD** |
-| Claude `output_tokens` | TBD |
-| Fits 30K/min window? | TBD |
-| Est. per-review cost (Whisper + Claude) | TBD |
+| Test video (duration / size) | 231.5s (03:51) / 87.24 MB |
+| Stage A wall-clock | 2.2s |
+| Frames extracted / total KB | 14 (cap hit) / 308.5 KB |
+| Stage B wall-clock / transcript chars | 11.5s / 2,621 chars (44 segments) |
+| Stage C wall-clock | 23.2s |
+| Total wall-clock | 36.9s |
+| **Claude `input_tokens`** | **8,550** |
+| Claude `output_tokens` | 1,009 |
+| Fits 30K/min window? | **YES** — 28% of window, ~21,450 headroom |
+| Est. per-review cost | $0.0231 (Whisper) + $0.0408 (Claude) = **~$0.064** |
 
-### Quality spot-check (TBD)
+Verdict: score **7/10** — correctly identified ~half slides / half live
+dashboard, caught the Originality agent's `error` state at 02:37, and flagged
+on-chain claims as only partially evidenced.
 
-Three `evidence` timestamps verified against the actual video frame + transcript:
-TBD.
+### Quality spot-check
 
-## Phase 2 architecture notes (TBD)
+Three `evidence` entries verified against the actual extracted frames — **all
+accurate, no confabulation**:
 
-Filled in after the run — async vs. synchronous placement, rate-window
-sequencing, frame budget tuning, ffmpeg deployment.
+| Cited timestamp | Model's observation | Frame check |
+|---|---|---|
+| 01:47 | "architecture slide, ALL STAGES LIVE" | ✅ frame 7 is exactly that slide |
+| 02:37 | "dashboard, repo pasted, Originality showing error" | ✅ frame 10 shows it, red error card and all |
+| 03:27 | "submission root `0x550496ff…`, 3/3, 3 held, Panel 2.00 CONVERGED" | ✅ frame 13 matches **to the hash prefix** |
+
+`claims_check` also discriminated correctly: marked *"agents pass only root
+hashes / payloads on-chain"* and *"every score is an on-chain audit trail"* as
+**asserted-only** (the UI shows hashes but no explorer proving on-chain writes),
+while marking the pipeline/deliberation/aggregation claims **shown**. It scored
+the *demo* (7) without conflating it with the repo's on-screen panel score
+(2.00). The shown-vs-asserted distinction is the primitive's core value.
+
+## Phase 2 architecture notes
+
+1. **Token budget is a non-issue.** 8,550 input tokens leaves huge room under
+   30K/min. You can safely add the real `REPO CONTEXT` (SubmissionRecord
+   summary) and/or raise the frame count and still sit well under the cap.
+2. **Run it async.** ~37s total with a ~23s LLM call means the Demo Judge must
+   run off the synchronous submit path — model it as a 4th judge whose result
+   lands later, not a blocking step in intake.
+3. **Keep the frame→timestamp labeling contract.** The model cited
+   frame-aligned timestamps verbatim, which made evidence trivially verifiable.
+   That labeling is doing real work; don't drop it.
+4. **Surface shown-vs-asserted in the dashboard.** `claims_check` reliably
+   separates "demoed" from "narrated" — the most differentiated output of the
+   Demo Judge and worth rendering prominently.
+5. **ffmpeg in production.** The spike vendors ffmpeg via `ffmpeg-static`; for
+   the real service prefer installing ffmpeg in the container image
+   (`apt-get install ffmpeg`). One-line swap of the binary path — not an
+   architecture commitment.
