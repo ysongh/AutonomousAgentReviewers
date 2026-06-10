@@ -1,0 +1,20 @@
+{
+  "name": "bootstrap-filecoin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: verify Filecoin Onchain Cloud (Warm Storage via Synapse SDK) can store/retrieve a demo-video file on the Calibration testnet. Throwaway, self-contained, NOT part of the AAR pipeline.",
+  "type": "module",
+  "scripts": {
+    "inspect": "node inspect-sdk.js",
+    "balance": "node check-balance.js",
+    "setup": "node setup-payments.js",
+    "upload": "node upload-video.js",
+    "download": "node download-video.js",
+    "tiny": "node tiny-piece-test.js"
+  },
+  "dependencies": {
+    "@filoz/synapse-sdk": "^0.41.0",
+    "dotenv": "^17.4.2",
+    "viem": "^2.52.2"
+  }
+}

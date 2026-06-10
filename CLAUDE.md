@@ -16,6 +16,22 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   upload/download works on this machine. Self-contained: own `package.json`,
   own `node_modules`, own `.env`. Not imported by anything else and not part
   of the final architecture. See `bootstrap/README.md`.
+- `bootstrap-filecoin/` — Phase 0 spike for the proposed **Demo Judge**
+  feature (a 4th judge that reviews demo videos). Proves that Filecoin
+  Onchain Cloud (Warm Storage via the Synapse SDK) can store/retrieve a
+  ~50MB mp4 on the Calibration testnet (chainId 314159), referenced later
+  by PieceCID in the `SubmissionRecord`. JSON verdicts stay on 0G — this
+  would be **additive, not a migration**. Self-contained: own
+  `package.json`, own `node_modules`, own fresh `.env` keypair (NEVER
+  reuses any AAR key from `.env`/`.env.agents`). Uses `pnpm`. **Spike only
+  — NOT wired into the agents/ pipeline.** See `bootstrap-filecoin/README.md`.
+  Critical SDK footgun (the 0G-lesson repeated): `@filoz/synapse-sdk` (v0.41+)
+  **migrated from ethers to viem** — `viem` is a required peer dep (`pnpm`
+  does NOT auto-install it) and there is no `Synapse.create({ privateKey,
+  rpcURL })`; you pass a viem `Account` from `privateKeyToAccount(...)`
+  (`SynapseOptions = { account, source, chain?, transport? }`). The
+  Calibration chain object is built into the SDK (`import { calibration }`).
+  Most tutorials in circulation are ethers-era and wrong against this build.
 - `shared/` — Common modules used by every agent: `og-storage.js` (the
   productionized 0G workaround — see below), `agent-wallet.js` (per-agent
   signer factory — see Per-agent wallets below), `schemas.js` (zod),
