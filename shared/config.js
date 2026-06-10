@@ -8,6 +8,7 @@ const PORTS = {
   'judge-originality': 4003,
   'judge-skeptic': 4004,
   aggregator: 4005,
+  'judge-demo': 4006,
   'log-streamer': 4100,
 };
 
@@ -17,6 +18,7 @@ const AGENT_IDS = {
   judgeOriginality: 'judge-originality',
   judgeSkeptic: 'judge-skeptic',
   aggregator: 'aggregator',
+  judgeDemo: 'judge-demo',
   logStreamer: 'log-streamer',
 };
 
@@ -33,6 +35,7 @@ const JUDGE_REVISE_URLS = {
 };
 
 const AGGREGATOR_URL = `http://localhost:${PORTS.aggregator}`;
+const JUDGE_DEMO_URL = `http://localhost:${PORTS['judge-demo']}`;
 
 const PATHS = {
   root: ROOT,
@@ -46,4 +49,4 @@ const OG = {
   privateKey: process.env.PRIVATE_KEY,
 };
 
-module.exports = { PORTS, AGENT_IDS, JUDGE_URLS, JUDGE_REVISE_URLS, AGGREGATOR_URL, PATHS, OG };
+module.exports = { PORTS, AGENT_IDS, JUDGE_URLS, JUDGE_REVISE_URLS, AGGREGATOR_URL, JUDGE_DEMO_URL, PATHS, OG };

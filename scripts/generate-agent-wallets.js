@@ -29,6 +29,7 @@ const AGENTS = [
   { id: 'judge-originality', prefix: 'JUDGE_ORIGINALITY' },
   { id: 'judge-skeptic',     prefix: 'JUDGE_SKEPTIC' },
   { id: 'aggregator',        prefix: 'AGGREGATOR' },
+  { id: 'judge-demo',        prefix: 'JUDGE_DEMO' },
 ];
 
 function ensureGitignored() {

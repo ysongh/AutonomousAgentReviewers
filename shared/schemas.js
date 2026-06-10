@@ -8,6 +8,12 @@ const SubmissionRecord = z.object({
   readme: z.string(),
   fileTree: z.array(z.string()),
   fetchedAt: z.string(),
+  // Demo Judge (Phase 2). Both null for submissions without a video — the
+  // pipeline then behaves byte-for-byte as before. When a video is supplied,
+  // intake uploads it to Filecoin Warm Storage and sets both: the content-
+  // addressed PieceCID and the plain-HTTP retrievalUrl the demo judge fetches.
+  demoVideoPieceCid: z.string().nullable(),
+  demoVideoRetrievalUrl: z.string().nullable(),
 });
 
 const JudgeVerdict = z.object({
@@ -83,4 +89,35 @@ const PanelVerdict = z.object({
   producedAt: z.string(),
 });
 
-module.exports = { SubmissionRecord, JudgeVerdict, RevisedVerdict, PanelVerdict };
+// DemoVerdict — the demo judge's artifact, uploaded to 0G (NOT Filecoin) by the
+// judge-demo wallet. Produced from a multimodal Claude call over evenly-spaced
+// keyframes + the timestamped narration transcript. `evidence` requires >= 3
+// timestamped observations; `claims_check` separates what is SHOWN on screen
+// from what is only ASSERTED in the narration/README. videoPieceCid ties the
+// verdict back to the exact Filecoin piece that was reviewed. This phase returns
+// the DemoVerdict alongside the panel — it is NOT yet aggregated into it.
+const DemoVerdict = z.object({
+  agentId: z.literal('judge-demo'),
+  submissionId: z.string().uuid(),
+  score: z.number().int().min(0).max(10),
+  reasoning: z.string(),
+  evidence: z
+    .array(
+      z.object({
+        timestamp: z.string(), // MM:SS into the video
+        observation: z.string(),
+      }),
+    )
+    .min(3),
+  claims_check: z.array(
+    z.object({
+      claim: z.string(),
+      verdict: z.enum(['shown', 'asserted-only', 'contradicted']),
+      timestamp: z.string().nullable(), // MM:SS or null
+    }),
+  ),
+  videoPieceCid: z.string(),
+  producedAt: z.string(),
+});
+
+module.exports = { SubmissionRecord, JudgeVerdict, RevisedVerdict, PanelVerdict, DemoVerdict };

@@ -27,6 +27,18 @@ const EVENTS = {
   PANEL_AGGREGATE_COMPLETE: 'panel-aggregate-complete',
   JUDGE_ABSTAIN_BY_CHOICE: 'judge-abstain-by-choice',
   JUDGE_ABSTAIN_DUE_TO_FAILURE: 'judge-abstain-due-to-failure',
+  // Demo Judge (Phase 2). Filecoin video upload happens on intake; the
+  // multimodal review happens on judge-demo (port 4006).
+  FILECOIN_UPLOAD_START: 'filecoin-upload-start',
+  FILECOIN_UPLOAD_COMPLETE: 'filecoin-upload-complete',
+  DEMO_REVIEW_START: 'demo-review-start', // intake -> judge-demo hop lifecycle
+  DEMO_REVIEW_COMPLETE: 'demo-review-complete',
+  DEMO_VIDEO_DOWNLOAD_START: 'demo-video-download-start', // judge-demo fetches the mp4 over HTTP
+  DEMO_VIDEO_DOWNLOAD_COMPLETE: 'demo-video-download-complete',
+  FRAMES_EXTRACT_COMPLETE: 'frames-extract-complete',
+  TRANSCRIPT_COMPLETE: 'transcript-complete',
+  CLAUDE_DEMO_START: 'claude-demo-start', // the one multimodal Claude call
+  CLAUDE_DEMO_COMPLETE: 'claude-demo-complete',
   ERROR: 'error',
 };
 
