@@ -43,7 +43,13 @@ via 0G Storage on the 0G Galileo testnet (chainId 16602).
   ffmpeg (`min(14, ceil(duration/15))`, **hard-capped at 14**, 768px
   wide, JPEG) recording each frame's timestamp; Stage B rips 16kHz mono
   audio and transcribes via OpenAI Whisper (`openai` SDK, requires
-  `OPENAI_API_KEY`); Stage C makes ONE forced-tool_use Claude call
+  `OPENAI_API_KEY`) — **must use `model: 'whisper-1'` with
+  `response_format: 'verbose_json'` + `timestamp_granularities: ['segment']`
+  to get segment timestamps; the SDK's own example model
+  `gpt-4o-transcribe` (and `gpt-4o-mini-transcribe`) only support
+  `json` and return NO timestamps, so they're unusable here even though
+  they look newer** (the evidence in `DemoVerdict` cites MM:SS, so
+  timestamps are non-negotiable); Stage C makes ONE forced-tool_use Claude call
   (`claude-sonnet-4-6`, same model as the judges) with the frames +
   transcript, capturing `usage.input_tokens` exactly. The headline
   measurement is **input tokens per call vs. the 30K tokens/min Anthropic
