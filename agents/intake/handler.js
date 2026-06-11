@@ -4,7 +4,7 @@ const { uploadJSON, downloadJSON } = require('aar-shared/og-storage');
 const { uploadVideo } = require('aar-shared/filecoin-storage');
 const { fetchRepoMetadata } = require('aar-shared/github');
 const { SubmissionRecord, JudgeVerdict, PanelVerdict, DemoVerdict } = require('aar-shared/schemas');
-const { AGENT_IDS, JUDGE_URLS, AGGREGATOR_URL, JUDGE_DEMO_URL } = require('aar-shared/config');
+const { AGENT_IDS, JUDGE_URLS, AGGREGATOR_URL, JUDGE_DEMO_URL, SUBMIT_SLOT_MS } = require('aar-shared/config');
 const { EVENTS, startTimer } = require('aar-shared/logger');
 const { transcodeVideo } = require('./transcode');
 
@@ -16,7 +16,11 @@ const JUDGES = [
   { judgeId: AGENT_IDS.judgeSkeptic, key: 'skeptic', url: `${JUDGE_URLS.skeptic}/judge` },
 ];
 
-async function callOneJudge({ judgeId, url }, { submissionRootHash, submissionId }, logger) {
+async function callOneJudge(
+  { judgeId, url },
+  { submissionRootHash, submissionId, submitDelayMs },
+  logger,
+) {
   const timer = startTimer();
   logger.info({
     event: EVENTS.JUDGE_CALL_START,
@@ -28,7 +32,9 @@ async function callOneJudge({ judgeId, url }, { submissionRootHash, submissionId
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ submissionRootHash, submissionId }),
+    // submitDelayMs is the coordinated on-chain slot offset (see SUBMIT_SLOT_MS)
+    // that serializes the three judges' concurrent flow.submit calls.
+    body: JSON.stringify({ submissionRootHash, submissionId, submitDelayMs }),
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
@@ -251,8 +257,17 @@ async function intake({ repoUrl, videoPath }, { logger, signer }) {
   const { rootHash: submissionRootHash } =
     await uploadJSON(submission, signer, { logger, submissionId });
 
+  // Assign each judge a distinct on-chain submit slot (index * SUBMIT_SLOT_MS) so
+  // only one flow.submit is in flight at a time — the Claude calls still run
+  // concurrently; only the on-chain write is staggered.
   const settled = await Promise.allSettled(
-    JUDGES.map((j) => callOneJudge(j, { submissionRootHash, submissionId }, logger)),
+    JUDGES.map((j, i) =>
+      callOneJudge(
+        j,
+        { submissionRootHash, submissionId, submitDelayMs: i * SUBMIT_SLOT_MS },
+        logger,
+      ),
+    ),
   );
 
   const verdicts = [];

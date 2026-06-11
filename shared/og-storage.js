@@ -23,7 +23,12 @@ const FINALIZATION_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 2000;
 // Random pre-submit jitter (ms). Staggers concurrent uploads from different
 // wallets across multiple Galileo blocks (~1.5s block time) to avoid the
-// cross-submitter race in the flow contract. See CLAUDE.md.
+// cross-submitter race in the flow contract. See CLAUDE.md. For the round-1 /
+// round-2 judge fan-out, the coordinator additionally passes an explicit
+// `submitDelayMs` slot offset (see SUBMIT_SLOT_MS in config.js) so the three
+// concurrent submits are serialized on-chain; this random jitter is then just
+// within-slot fuzz on top of that offset. Solo uploads (SubmissionRecord, panel
+// verdict, demo verdict) pass no offset and behave exactly as before.
 const UPLOAD_JITTER_MAX_MS = 2000;
 
 function requireNetworkEnv() {
@@ -47,7 +52,7 @@ function getDefaultSigner() {
   return new ethers.Wallet(PRIVATE_KEY, provider);
 }
 
-async function uploadJSON(obj, signer, { logger, submissionId } = {}) {
+async function uploadJSON(obj, signer, { logger, submissionId, submitDelayMs } = {}) {
   if (!signer || typeof signer.getAddress !== 'function') {
     throw new Error('uploadJSON now requires an explicit ethers.Wallet signer as its second argument');
   }
@@ -58,8 +63,12 @@ async function uploadJSON(obj, signer, { logger, submissionId } = {}) {
   if (!provider) throw new Error('signer must be connected to a provider');
   const submitter = await signer.getAddress();
 
-  const jitterMs = Math.floor(Math.random() * UPLOAD_JITTER_MAX_MS);
-  logger?.info({ event: 'upload-jitter', submissionId, submitter, jitterMs });
+  // Coordinated slot offset (round-1/round-2 fan-out) + within-slot random fuzz.
+  // submitDelayMs is 0/undefined for solo uploads, so they keep the original
+  // 0–2000ms random-only behavior.
+  const baseDelay = Number.isFinite(submitDelayMs) ? Math.max(0, submitDelayMs) : 0;
+  const jitterMs = baseDelay + Math.floor(Math.random() * UPLOAD_JITTER_MAX_MS);
+  logger?.info({ event: 'upload-jitter', submissionId, submitter, jitterMs, submitDelayMs: baseDelay });
   await new Promise((r) => setTimeout(r, jitterMs));
 
   const indexer = new Indexer(INDEXER_URL);

@@ -14,7 +14,7 @@ const {
 
 const AGENT_ID = AGENT_IDS.judgeSkeptic;
 
-async function judge({ submissionRootHash, submissionId }, { logger, signer }) {
+async function judge({ submissionRootHash, submissionId, submitDelayMs }, { logger, signer }) {
   if (!submissionRootHash || !submissionId) {
     throw new Error('submissionRootHash and submissionId are required');
   }
@@ -63,12 +63,16 @@ async function judge({ submissionRootHash, submissionId }, { logger, signer }) {
     producedAt: new Date().toISOString(),
   });
 
-  const { rootHash: verdictRootHash } = await uploadJSON(verdict, signer, { logger, submissionId });
+  const { rootHash: verdictRootHash } = await uploadJSON(verdict, signer, {
+    logger,
+    submissionId,
+    submitDelayMs,
+  });
   return { verdictRootHash };
 }
 
 async function revise(
-  { submissionId, originalVerdictRootHash, peerVerdictRootHashes, demoVerdictRootHash },
+  { submissionId, originalVerdictRootHash, peerVerdictRootHashes, demoVerdictRootHash, submitDelayMs },
   { logger, signer },
 ) {
   if (!submissionId) throw new Error('submissionId is required');
@@ -175,6 +179,7 @@ async function revise(
   const { rootHash: revisionRootHash } = await uploadJSON(revisedVerdict, signer, {
     logger,
     submissionId,
+    submitDelayMs,
   });
 
   logger.info({

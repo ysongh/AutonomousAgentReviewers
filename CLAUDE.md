@@ -1236,12 +1236,37 @@ Phase 4 components (demo surface):
   state. `shared/og-storage.js` prepends a 0–2000ms random jitter
   (`UPLOAD_JITTER_MAX_MS`) to every `uploadJSON` call to stagger
   concurrent submissions across blocks (~1.5s Galileo block time). Total
-  per-submission latency added: ~1s on average. Failure rate residual
-  after this mitigation: TBD (measure during Phase 1). Jitter is a
+  per-submission latency added: ~1s on average. Jitter is a
   delay, not a retry — the no-retries-inside-og-storage rule still
   applies. Logged per-call as the non-canonical `upload-jitter` event
   (internal observability only; not part of the dashboard event
   contract).
+- **Coordinated submit slots (the real fix for the 3-way fan-out race).**
+  Random jitter alone is insufficient: a Galileo `flow.submit` takes ~9s to
+  mine, so when intake fans out to the three judges concurrently their
+  submits are all in flight simultaneously and the flow contract reverts
+  all-but-one with `status:0` + empty logs — observed at ~67% (2 of 3) under
+  load, and reproducibly so. The reverting txns need NOT share a block:
+  measured failures landed up to 3 blocks apart, because the conflict is
+  *simultaneous in-flight overlap*, not block adjacency (the winner was not
+  even the earliest-mined tx). The fix: the COORDINATOR assigns each
+  concurrent judge an integer slot and passes `submitDelayMs = slot *
+  SUBMIT_SLOT_MS` down the bus; the judge delays only its on-chain
+  `flow.submit` by that offset (the Claude calls still run concurrently).
+  With `SUBMIT_SLOT_MS` (default 12000ms, > the ~9s mine window; env-tunable
+  in `shared/config.js`) only ONE submit is in flight at a time. Wiring:
+  intake assigns slots 0/1/2 for round 1; the aggregator assigns 0/1/2 for
+  the round-2 revise fan-out; `submitDelayMs` rides in the `/judge` and
+  `/revise` bodies (a scalar control param, not payload — the
+  only-hashes-on-the-wire rule still holds), is threaded through each judge
+  handler into `uploadJSON`'s options, and combines with the existing random
+  jitter as within-slot fuzz. Solo uploads (intake's `SubmissionRecord`, the
+  aggregator's `PanelVerdict`, the demo verdict) pass no `submitDelayMs` and
+  behave byte-for-byte as before. Still a delay, not a retry — the
+  no-retries-inside-og-storage rule is intact. Trade-off: round 1 and round 2
+  each stretch by ~2·`SUBMIT_SLOT_MS` (~24s) since their on-chain writes are
+  now serialized. The `upload-jitter` log event now also carries the resolved
+  `submitDelayMs`.
 - Storage fee for tiny payloads is dominated by gas, not the per-sector price
   (~3e-8 0G/sector). Don't over-engineer fee estimation for sanity checks.
 - `agents/aggregator` supports `--simulate-revise-failure=<agentId>` (or

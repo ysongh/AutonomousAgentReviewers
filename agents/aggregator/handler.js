@@ -1,7 +1,7 @@
 const { uploadJSON, downloadJSON } = require('aar-shared/og-storage');
 const { callJudge } = require('aar-shared/claude');
 const { JudgeVerdict, RevisedVerdict, PanelVerdict, DemoVerdict } = require('aar-shared/schemas');
-const { AGENT_IDS, JUDGE_REVISE_URLS } = require('aar-shared/config');
+const { AGENT_IDS, JUDGE_REVISE_URLS, SUBMIT_SLOT_MS } = require('aar-shared/config');
 const { EVENTS, startTimer } = require('aar-shared/logger');
 
 const AGENT_ID = AGENT_IDS.aggregator;
@@ -161,7 +161,7 @@ async function callRevise(judgeKey, body, submissionId, logger) {
 
 async function runDeliberation(round1, submissionId, logger, simulateFailure, demoVerdictRootHash) {
   const settled = await Promise.allSettled(
-    JUDGE_KEYS.map((key) => {
+    JUDGE_KEYS.map((key, i) => {
       // Debug escape hatch: --simulate-revise-failure=<judge-agent-id>
       // makes the targeted judge's /revise reject before any HTTP call,
       // so the existing rejected branch below produces the same synthetic
@@ -176,6 +176,9 @@ async function runDeliberation(round1, submissionId, logger, simulateFailure, de
         submissionId,
         originalVerdictRootHash: round1[key].verdictRootHash,
         peerVerdictRootHashes: peerKeys.map((pk) => round1[pk].verdictRootHash),
+        // Coordinated on-chain submit slot — same mechanism as round 1, so the
+        // three concurrent revise uploads don't race the flow contract.
+        submitDelayMs: i * SUBMIT_SLOT_MS,
         // CROSS-MODAL: the demo verdict travels as a SEPARATE field, NOT inside
         // peerVerdictRootHashes — a DemoVerdict has a different schema than a
         // JudgeVerdict, so the judge downloads + validates it independently.

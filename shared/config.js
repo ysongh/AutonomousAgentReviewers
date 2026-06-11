@@ -37,6 +37,16 @@ const JUDGE_REVISE_URLS = {
 const AGGREGATOR_URL = `http://localhost:${PORTS.aggregator}`;
 const JUDGE_DEMO_URL = `http://localhost:${PORTS['judge-demo']}`;
 
+// Coordinated submit slots — mitigates the cross-submitter flow-contract race
+// (see CLAUDE.md). The three judges run their Claude calls concurrently, but the
+// COORDINATOR (intake for round 1, aggregator for round 2) assigns each judge a
+// slot index 0/1/2; the judge delays its on-chain flow.submit by
+// slot * SUBMIT_SLOT_MS so only ONE submit is in flight at a time. A Galileo
+// flow.submit mines in ~9s, and concurrent in-flight submits revert all-but-one,
+// so the slot must comfortably exceed the mine window. This serializes the
+// on-chain writes WITHOUT serializing the (slow) Claude calls. Tunable via env.
+const SUBMIT_SLOT_MS = Number(process.env.SUBMIT_SLOT_MS) || 12000;
+
 const PATHS = {
   root: ROOT,
   logs: path.join(ROOT, 'logs'),
@@ -49,4 +59,4 @@ const OG = {
   privateKey: process.env.PRIVATE_KEY,
 };
 
-module.exports = { PORTS, AGENT_IDS, JUDGE_URLS, JUDGE_REVISE_URLS, AGGREGATOR_URL, JUDGE_DEMO_URL, PATHS, OG };
+module.exports = { PORTS, AGENT_IDS, JUDGE_URLS, JUDGE_REVISE_URLS, AGGREGATOR_URL, JUDGE_DEMO_URL, SUBMIT_SLOT_MS, PATHS, OG };
