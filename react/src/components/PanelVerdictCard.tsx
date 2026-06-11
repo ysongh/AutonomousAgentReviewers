@@ -26,16 +26,24 @@ function scoreTone(score: number): 'good' | 'mid' | 'bad' {
 export function PanelVerdictCard({ panelVerdict, panelVerdictRootHash }: Props) {
   const [copied, setCopied] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
-  const { finalScores, weightedAggregate, spread, dissent, dissentSummary } = panelVerdict;
+  const { finalScores, weightedAggregate, spread, dissent, dissentSummary, weights } =
+    panelVerdict;
 
-  // Build the formula string with the actual numbers substituted in. Goes
-  // into the hero's title attribute for hover-tooltip discovery; the
+  // Build the formula string from the panel's OWN weights (self-describing
+  // since Phase 3 — 0.35/0.25/0.25/0.15 with a demo). Fall back to the fixed
+  // Phase 1/2 weights only when the field is absent (a panel that predates it).
+  // Goes into the hero's title attribute for hover-tooltip discovery; the
   // formula is the most useful "show your work" affordance the panel has.
-  const formula =
-    `0.4 × technical(${finalScores.technical}) + ` +
-    `0.3 × originality(${finalScores.originality}) + ` +
-    `0.3 × skeptic(${finalScores.skeptic}) = ` +
-    `${weightedAggregate.toFixed(2)}`;
+  const w = weights ?? { technical: 0.4, originality: 0.3, skeptic: 0.3 };
+  const terms = [
+    `${w.technical} × technical(${finalScores.technical})`,
+    `${w.originality} × originality(${finalScores.originality})`,
+    `${w.skeptic} × skeptic(${finalScores.skeptic})`,
+  ];
+  if (w.demo != null && finalScores.demo != null) {
+    terms.push(`${w.demo} × demo(${finalScores.demo})`);
+  }
+  const formula = `${terms.join(' + ')} = ${weightedAggregate.toFixed(2)}`;
 
   async function handleCopy() {
     if (!panelVerdictRootHash) return;
@@ -73,6 +81,11 @@ export function PanelVerdictCard({ panelVerdict, panelVerdictRootHash }: Props) 
           <span className={`score-badge score-badge--${scoreTone(finalScores.skeptic)}`}>
             skep {finalScores.skeptic}
           </span>
+          {finalScores.demo != null ? (
+            <span className={`score-badge score-badge--${scoreTone(finalScores.demo)}`}>
+              demo {finalScores.demo}
+            </span>
+          ) : null}
           <span className="panel-verdict-card__spread">spread: {spread}</span>
           {dissent ? (
             <span className="dissent-pill dissent-pill--dissent">DISSENT</span>

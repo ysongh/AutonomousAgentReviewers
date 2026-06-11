@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { PanelVerdict, VerdictEntry } from '../types';
+import { SeekableText } from '../lib/SeekableText';
 
 type Revision = PanelVerdict['round2Revisions'][number];
 
@@ -10,6 +11,10 @@ type Props = {
   // in round2Revisions for any reason. The card renders fine without it
   // — the deliberation footer is purely additive.
   revision?: Revision;
+  // Phase 3: when a demo video is present, MM:SS timestamps a cross-modal
+  // revision cites in its revisionReasoning become seek buttons. Absent on
+  // no-video runs — timestamps then render as plain text.
+  onSeek?: (seconds: number) => void;
 };
 
 function shorten(hash: string): string {
@@ -65,9 +70,11 @@ function WarnIcon() {
 function DeliberationRow({
   revision,
   round1Score,
+  onSeek,
 }: {
   revision: Revision;
   round1Score: number;
+  onSeek?: (seconds: number) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -90,7 +97,9 @@ function DeliberationRow({
           </span>
         </button>
         {open && revision.revisionReasoning ? (
-          <p className="deliberation-row__detail">{revision.revisionReasoning}</p>
+          <p className="deliberation-row__detail">
+            <SeekableText text={revision.revisionReasoning} onSeek={onSeek} />
+          </p>
         ) : null}
       </div>
     );
@@ -119,7 +128,7 @@ function DeliberationRow({
   );
 }
 
-export function VerdictCard({ entry, revision }: Props) {
+export function VerdictCard({ entry, revision, onSeek }: Props) {
   const { judgeId, verdictRootHash, verdict } = entry;
   const [copied, setCopied] = useState(false);
 
@@ -146,7 +155,7 @@ export function VerdictCard({ entry, revision }: Props) {
         ))}
       </ul>
       {revision ? (
-        <DeliberationRow revision={revision} round1Score={verdict.score} />
+        <DeliberationRow revision={revision} round1Score={verdict.score} onSeek={onSeek} />
       ) : null}
       <footer className="verdict-card__footer">
         <span className="verdict-card__hash" title={verdictRootHash}>

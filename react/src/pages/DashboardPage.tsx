@@ -1,4 +1,5 @@
 import { useApp } from '../AppContext';
+import { useDemoVideoUrl } from '../hooks/useDemoVideoUrl';
 import { SubmissionForm } from '../components/SubmissionForm';
 import { AgentGrid } from '../components/AgentGrid';
 import { ActivityLog } from '../components/ActivityLog';
@@ -15,6 +16,15 @@ export function DashboardPage() {
   const isRunning = run.status === 'submitting';
   const showRunSection = run.status !== 'idle';
   const completed = run.status === 'complete' && run.response !== null;
+
+  // Recover the demo video's playable URL (only when a demo verdict came back).
+  // The hook is a no-op when there's nothing to play, so it's safe to call
+  // unconditionally here.
+  const demoVerdict = completed ? run.response?.demoVerdict ?? null : null;
+  const demoVideoUrl = useDemoVideoUrl(
+    run.response?.submissionRootHash ?? null,
+    demoVerdict !== null,
+  );
 
   // Skeleton gate: while the response is in flight, derive "round-1 done,
   // panel pending" from the SSE feed. We can't filter by submissionId yet
@@ -101,6 +111,9 @@ export function DashboardPage() {
               failures={run.response.failures}
               panelVerdict={run.response.panelVerdict}
               failedRound1={run.failedRound1}
+              demoVerdict={run.response.demoVerdict}
+              demoVideoError={run.response.demoVideoError}
+              demoVerdictError={run.response.demoVerdictError}
             />
           ) : null}
 
@@ -111,6 +124,9 @@ export function DashboardPage() {
               verdicts={run.response.verdicts}
               failures={run.response.failures}
               panelVerdict={run.response.panelVerdict}
+              demoVerdict={run.response.demoVerdict}
+              demoVerdictRootHash={run.response.demoVerdictRootHash}
+              demoVideoRetrievalUrl={demoVideoUrl}
             />
           ) : null}
 

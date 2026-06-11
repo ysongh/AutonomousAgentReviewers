@@ -1,10 +1,17 @@
-import type { Failure, PanelVerdict, VerdictEntry } from '../types';
+import type { DemoVerdict, Failure, PanelVerdict, VerdictEntry } from '../types';
 
 type Props = {
   verdicts: VerdictEntry[];
   failures: Failure[];
   panelVerdict: PanelVerdict | null;
   failedRound1: boolean;
+  // Phase 3 demo fields, all from the /submit response and all absent on a
+  // no-video run. demoVerdict drives the demo segment; the two errors drive the
+  // amber degraded/failed chips that make a degraded run distinguishable from a
+  // no-video run at a glance. Held/revised math is unchanged (text judges only).
+  demoVerdict?: DemoVerdict | null;
+  demoVideoError?: string;
+  demoVerdictError?: string;
 };
 
 type Tone = 'ok' | 'warn' | 'err';
@@ -13,7 +20,15 @@ type Tone = 'ok' | 'warn' | 'err';
 // round-1 fan-out result, deliberation result, and the final headline.
 // Renders only when a run has produced a result — the parent decides the
 // gating; this component just trusts the props it gets.
-export function RunSummary({ verdicts, failures, panelVerdict, failedRound1 }: Props) {
+export function RunSummary({
+  verdicts,
+  failures,
+  panelVerdict,
+  failedRound1,
+  demoVerdict,
+  demoVideoError,
+  demoVerdictError,
+}: Props) {
   // Round-1 race: intake skipped aggregation. Re-submit is the only fix.
   if (failedRound1) {
     const successCount = verdicts.length;
@@ -76,6 +91,18 @@ export function RunSummary({ verdicts, failures, panelVerdict, failedRound1 }: P
       ? `${verdicts.length}/3 ✓`
       : `${verdicts.length}/3 (${failures.length} failed)`;
 
+  // Demo segment: score, plus the contradicted count only when nonzero —
+  // contradicted is the attention-worthy signal (a claim the video disproved).
+  let demoText: string | null = null;
+  if (demoVerdict) {
+    const contradicted = demoVerdict.claims_check.filter(
+      (c) => c.verdict === 'contradicted',
+    ).length;
+    demoText = `Demo: ${demoVerdict.score}${
+      contradicted > 0 ? ` (${contradicted} contradicted)` : ''
+    }`;
+  }
+
   return (
     <section className="run-summary-line">
       <span className="run-summary-line__seg">Round 1: {round1Text}</span>
@@ -85,6 +112,28 @@ export function RunSummary({ verdicts, failures, panelVerdict, failedRound1 }: P
       <span className={`run-summary-line__headline run-summary-line__headline--${tone}`}>
         Panel: {score} {headlineLabel}
       </span>
+      {demoText ? (
+        <>
+          <span className="run-summary-line__sep">•</span>
+          <span className="run-summary-line__seg">{demoText}</span>
+        </>
+      ) : null}
+      {demoVideoError ? (
+        <span
+          className="run-summary-line__chip run-summary-line__chip--warn"
+          title={`Video degraded — ${demoVideoError}`}
+        >
+          ⚠ video degraded — panel ran without demo review
+        </span>
+      ) : null}
+      {demoVerdictError ? (
+        <span
+          className="run-summary-line__chip run-summary-line__chip--warn"
+          title={`Demo review failed — ${demoVerdictError}`}
+        >
+          ⚠ demo review failed — panel ran without demo
+        </span>
+      ) : null}
     </section>
   );
 }
