@@ -7,7 +7,7 @@ type AppCtx = {
   events: LogEvent[];
   connected: boolean;
   run: RunState;
-  submit: (repoUrl: string) => Promise<void>;
+  submit: (repoUrl: string, video?: File | null) => Promise<void>;
   reset: () => void;
 };
 

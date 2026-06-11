@@ -44,7 +44,7 @@ function summarizeFailures(response: SubmissionResponse): string | null {
 export function useSubmission() {
   const [run, setRun] = useState<RunState>(INITIAL);
 
-  const submit = useCallback(async (repoUrl: string) => {
+  const submit = useCallback(async (repoUrl: string, video?: File | null) => {
     setRun({
       status: 'submitting',
       repoUrl,
@@ -57,11 +57,24 @@ export function useSubmission() {
     });
 
     try {
-      const resp = await fetch(SUBMIT_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repoUrl }),
-      });
+      // With a video we POST multipart FormData (intake's multer field is
+      // `video`); without, we keep the exact JSON request the no-video path
+      // always used, so video-less submissions are byte-for-byte unchanged.
+      // Do NOT set content-type on the FormData request — the browser must
+      // add the multipart boundary itself.
+      const init: RequestInit = video
+        ? (() => {
+            const fd = new FormData();
+            fd.append('repoUrl', repoUrl);
+            fd.append('video', video);
+            return { method: 'POST', body: fd };
+          })()
+        : {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ repoUrl }),
+          };
+      const resp = await fetch(SUBMIT_URL, init);
 
       const text = await resp.text();
       let parsed: unknown;

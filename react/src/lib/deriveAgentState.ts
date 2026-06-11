@@ -21,6 +21,12 @@ const START_TO_COMPLETE: Record<string, string> = {
   'judge-call-start': 'judge-call-complete',
   'revise-call-start': 'revise-call-complete',
   'panel-aggregate-start': 'panel-aggregate-complete',
+  // Phase 3 — judge-demo's review lifecycle. The mp4 HTTP fetch and the single
+  // multimodal Claude call are the long-running spans; pairing them keeps the
+  // demo card pinned to "working" through a ~60s review. (frames-extract-complete
+  // and transcript-complete are momentary, so they intentionally stay unpaired.)
+  'demo-video-download-start': 'demo-video-download-complete',
+  'claude-demo-start': 'claude-demo-complete',
 };
 
 // Walk the events for one agent in chronological order and reduce them down
