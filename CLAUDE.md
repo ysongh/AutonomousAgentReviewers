@@ -496,15 +496,14 @@ This phase returns the `DemoVerdict` **alongside** the panel; aggregating
 the demo score into the `PanelVerdict`/deliberation is **Phase 3**, and
 the dashboard surface is **Phase 4**.
 
-> **Implementation status.** Built and standalone-testable: the Filecoin
-> client (`shared/filecoin-storage.js`), the schemas (`DemoVerdict` +
-> the `SubmissionRecord` video fields), the sixth wallet, and the
-> `agents/judge-demo` service. **Remaining:** wiring intake (multipart
-> intake of the video, the Filecoin upload on the submit path, and the
-> post-aggregator `/review` hop), the `scripts/submit.js --video` flag,
-> and adding `judge-demo` to `start-all.sh`/`stop-all.sh`. Until intake
-> is wired, the demo judge is exercised by POSTing `/review` directly
-> with a `submissionRootHash` whose record already has the video fields.
+> **Implementation status.** Fully wired end to end: the Filecoin client
+> (`shared/filecoin-storage.js`), the schemas (`DemoVerdict` + the
+> `SubmissionRecord` video fields), the sixth wallet, the
+> `agents/judge-demo` service, intake's multipart submit path + Filecoin
+> upload + post-aggregator `/review` hop, the `scripts/submit.js --video`
+> flag, and `judge-demo` in `start-all.sh`/`stop-all.sh`. The demo judge
+> can also be exercised in isolation by POSTing `/review` directly with a
+> `submissionRootHash` whose record already has the video fields.
 
 ### shared/filecoin-storage.js — the productionized Filecoin client
 
@@ -529,6 +528,19 @@ Footguns (the 0G-lesson family, all reproduced in the module's header):
 - **Copies.** The SDK exposes `copies` on the upload options (default
   **2** across providers). We set **`copies: 1`** ("v1: single copy;
   revisit 2-copy redundancy for production").
+- **`copies: 1` has NO provider failover** (the `copies: 2` default is what
+  buys it). If the selected Warm Storage provider's piece-store endpoint is
+  degraded, the upload hard-fails with `Failed to store piece on service
+  provider - Network request failed` — and because intake awaits the upload
+  before the immutable `SubmissionRecord` (see the trade-off below), that
+  surfaces as a **submit 500**. Escape hatch:
+  `FILECOIN_EXCLUDE_PROVIDER_IDS=<id[,id…]>` (root `.env`) →
+  `excludeProviderIds`, forcing the SDK onto a healthy provider (a new data
+  set is created there). Defaults to none. Observed 2026-06-10: an 87MB mp4
+  failed mid-transfer at ~21s on **two different** providers while a 2KB
+  piece uploaded fine on the same providers — so large-transfer flakiness is
+  real and provider-agnostic on Calibration; prefer a smaller/transcoded clip
+  or `copies: 2` if it persists.
 - **Wallet reuse.** `FILECOIN_PRIVATE_KEY` in root `.env` reuses the
   funded `bootstrap-filecoin` spike wallet. NEVER reuse a 0G AAR key.
 
@@ -560,12 +572,14 @@ Same discipline as the spike: ONE Claude call, no retries, no multi-pass;
 to v6, and the demo judge reuses `shared/claude.js` rather than constructing
 its own Anthropic client. The `Frame N — t=MM:SS` labeling contract is kept.
 
-### Video flow through intake (the design — wiring pending)
+### Video flow through intake
 
-When wired, intake will: accept multipart `/submit` with an optional video
-field (mp4/webm/mov, 150MB cap); start `uploadVideo(...)` immediately and
-**await it just before uploading the `SubmissionRecord`** so the record is
-immutable with both video fields set. **Trade-off (accepted):** the Filecoin
+Intake accepts multipart `/submit` with an optional `video` field
+(mp4/webm/mov, 150MB cap, streamed to a temp file by **multer**); it starts
+`uploadVideo(...)` immediately and **awaits it just before uploading the
+`SubmissionRecord`** so the record is immutable with both video fields set.
+(Intake also runs `assertRunway()` once at startup and exits if the Filecoin
+wallet can't pay — no payment setup at runtime.) **Trade-off (accepted):** the Filecoin
 upload (~90–150s) sits on the critical path *before* round 1 rather than
 hidden behind it, because the record is immutable once on 0G — `uploadMs` is
 logged to measure the real cost. (A future optimization — local PieceCID
@@ -578,6 +592,29 @@ fields `{ ...response, demoVerdict, demoVerdictRootHash }`.
 intake logs it and returns `demoVerdict: null` + `demoVerdictError: <string>`
 — the panel result is unaffected. Submissions **without** a video behave
 byte-for-byte as before: no Filecoin call, no demo fields on the response.
+
+### Measured end-to-end (Phase 2 verification, 2026-06-10)
+
+On the AAR repo (`ysongh/AutonomousAgentReviewers`) + a 3MB transcode of the
+real 3:51 narrated AAR demo (87MB original failed the large-upload flakiness
+above), total wall-clock **196.9s**, broken down:
+- Filecoin upload (critical path, pre-round-1): **59.9s**
+- Round 1 (3 judges, concurrent): 29.9s
+- Aggregator (round 2 + panel): 33.8s
+- Demo review hop: 57.1s — video download 1.8s, frames+whisper ~33s,
+  **one Claude call 22.5s**
+
+Demo Claude call: **10,563 input tokens** (vs the spike's 8,550 — the extra
+~2K is the real REPO CONTEXT; still ~35% of the 30K/min window), 1,025 output.
+DemoVerdict: score 7/10, 5 timestamped evidence, **11 `claims_check`** entries
+spanning `shown` / `asserted-only` / `contradicted`. REPO CONTEXT visibly
+sharpened the claims check vs. the spike's placeholder: the model tested
+README claims *by name* against the frames — e.g. flagged "only root hashes
+pass over HTTP" as `asserted-only` (UI shows hashes, doesn't prove on-chain)
+and "Originality agent runs without errors" as `contradicted` (a visible error
+card at 02:37). No 429s in either verification run. The no-video regression on
+`sindresorhus/is` was byte-for-byte unchanged (zero Filecoin/OpenAI/demo
+events, judge-demo untouched, no demo fields on the response).
 
 ## Running it
 
@@ -599,6 +636,8 @@ Add `ANTHROPIC_API_KEY`, `PRIVATE_KEY`, `RPC_URL`, `INDEXER_URL` to root
 Phase 2 (Demo Judge) also needs `FILECOIN_PRIVATE_KEY` (a Calibration wallet
 with a USDFC deposit + Warm Storage operator approval — reuse the funded
 `bootstrap-filecoin` spike wallet) and `OPENAI_API_KEY` (Whisper) in root `.env`.
+Optional: `FILECOIN_EXCLUDE_PROVIDER_IDS=<id[,id…]>` to route uploads around a
+degraded Warm Storage provider (see the `copies: 1` footgun above).
 
 Generate and fund per-agent wallets (one-time, before first run):
 ```
@@ -614,7 +653,7 @@ DOES invalidate them; don't pass it unless you intend to refund all six.
 
 Three terminals:
 ```
-# terminal 1 — start all 6 services (5 agents + log-streamer)
+# terminal 1 — start all 7 services (6 agents + log-streamer)
 ./scripts/start-all.sh
 
 # terminal 2 — tap the live SSE feed (optional; the dashboard will do this)
@@ -622,11 +661,13 @@ curl -N http://localhost:4100/events
 
 # terminal 3 — submit a repo, get the panel verdict synchronously
 node scripts/submit.js https://github.com/sindresorhus/is
+# ...or with an optional demo video (stored on Filecoin, reviewed by judge-demo):
+node scripts/submit.js https://github.com/sindresorhus/is --video ./demo.mp4
 ```
 
 `scripts/start-all.sh` refuses to run if any subproject's `node_modules/`
 is missing and tells you which ones. `scripts/stop-all.sh` kills anything
-listening on the Phase 1 ports (4001-4005, 4100) — useful if a previous
+listening on the agent ports (4001-4006, 4100) — useful if a previous
 run was backgrounded or crashed.
 
 `scripts/submit.js` POSTs to intake at `:4001/submit` and prints the

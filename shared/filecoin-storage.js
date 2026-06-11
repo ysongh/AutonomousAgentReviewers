@@ -115,11 +115,23 @@ async function uploadVideo(filePathOrBuffer, { logger } = {}) {
   }
   const sizeBytes = bytes.byteLength;
 
+  // Operational escape hatch: comma-separated provider ids to avoid. With
+  // copies:1 there is NO provider failover (the copies:2 default is what gives
+  // you that), so if the selected Warm Storage provider's piece-store endpoint
+  // is degraded, set FILECOIN_EXCLUDE_PROVIDER_IDS=<id[,id...]> to force the SDK
+  // onto a healthy provider (a new data set is created there). Defaults to none.
+  const excludeProviderIds = (process.env.FILECOIN_EXCLUDE_PROVIDER_IDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => BigInt(s));
+
   const t0 = Date.now();
   const result = await synapse.storage.upload(bytes, {
     // v1: single copy; revisit 2-copy redundancy for production. The SDK
     // defaults to 2 copies across providers (doubles lockup + piece-add txs).
     copies: 1,
+    ...(excludeProviderIds.length ? { excludeProviderIds } : {}),
     callbacks: {
       onProviderSelected: (p) =>
         logger?.info({ event: 'filecoin-provider-selected', provider: p.serviceProvider ?? p.payee }),

@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const { uploadJSON, downloadJSON } = require('aar-shared/og-storage');
+const { uploadVideo } = require('aar-shared/filecoin-storage');
 const { fetchRepoMetadata } = require('aar-shared/github');
-const { SubmissionRecord, JudgeVerdict, PanelVerdict } = require('aar-shared/schemas');
-const { AGENT_IDS, JUDGE_URLS, AGGREGATOR_URL } = require('aar-shared/config');
+const { SubmissionRecord, JudgeVerdict, PanelVerdict, DemoVerdict } = require('aar-shared/schemas');
+const { AGENT_IDS, JUDGE_URLS, AGGREGATOR_URL, JUDGE_DEMO_URL } = require('aar-shared/config');
 const { EVENTS, startTimer } = require('aar-shared/logger');
 
 const AGENT_ID = AGENT_IDS.intake;
@@ -95,13 +96,78 @@ async function callAggregator(
   return { panelVerdictRootHash, panelVerdict };
 }
 
-async function intake({ repoUrl }, { logger, signer }) {
+// Calls judge-demo /review and returns the validated DemoVerdict + its root
+// hash. Used only when the submission carries a video. The demo judge NEVER
+// blocks the panel — the caller wraps this in try/catch and degrades to
+// demoVerdict:null on any failure.
+async function callDemoJudge({ submissionId, submissionRootHash, videoPieceCid }, logger) {
+  const timer = startTimer();
+  logger.info({ event: EVENTS.DEMO_REVIEW_START, submissionId, rootHash: submissionRootHash });
+
+  const resp = await fetch(`${JUDGE_DEMO_URL}/review`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ submissionRootHash, submissionId }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`judge-demo responded ${resp.status}: ${text}`);
+  }
+  const { demoVerdictRootHash } = await resp.json();
+  if (!demoVerdictRootHash) throw new Error('judge-demo response missing demoVerdictRootHash');
+
+  const rawVerdict = await downloadJSON(demoVerdictRootHash, { logger, submissionId });
+  const demoVerdict = DemoVerdict.parse(rawVerdict);
+  if (demoVerdict.submissionId !== submissionId) {
+    throw new Error(
+      `demo verdict submissionId mismatch: expected ${submissionId}, got ${demoVerdict.submissionId}`,
+    );
+  }
+  if (demoVerdict.videoPieceCid !== videoPieceCid) {
+    throw new Error(
+      `demo verdict videoPieceCid mismatch: expected ${videoPieceCid}, got ${demoVerdict.videoPieceCid}`,
+    );
+  }
+
+  logger.info({
+    event: EVENTS.DEMO_REVIEW_COMPLETE,
+    submissionId,
+    rootHash: demoVerdictRootHash,
+    score: demoVerdict.score,
+    durationMs: timer(),
+  });
+  return { demoVerdictRootHash, demoVerdict };
+}
+
+async function intake({ repoUrl, videoPath }, { logger, signer }) {
   if (!repoUrl) throw new Error('repoUrl is required');
   if (!signer) throw new Error('intake requires a signer');
 
   const submissionId = crypto.randomUUID();
   logger.info({ event: EVENTS.SUBMISSION_STARTED, submissionId, repoUrl });
-  logger.info({ event: EVENTS.SUBMISSION_RECEIVED, submissionId, repoUrl });
+  logger.info({ event: EVENTS.SUBMISSION_RECEIVED, submissionId, repoUrl, hasVideo: !!videoPath });
+
+  // Kick off the Filecoin Warm Storage upload IMMEDIATELY (before the GitHub
+  // fetch) so its ~90-150s latency overlaps the repo fetch. We still AWAIT it
+  // just before uploading the SubmissionRecord — the record is immutable once
+  // on 0G, so both video fields must be set before that write. uploadMs is
+  // logged to measure the real cost of putting Filecoin on the submit path.
+  let videoUploadPromise = null;
+  if (videoPath) {
+    const fcTimer = startTimer();
+    logger.info({ event: EVENTS.FILECOIN_UPLOAD_START, submissionId });
+    videoUploadPromise = uploadVideo(videoPath, { logger }).then((r) => {
+      logger.info({
+        event: EVENTS.FILECOIN_UPLOAD_COMPLETE,
+        submissionId,
+        pieceCid: r.pieceCid,
+        sizeBytes: r.sizeBytes,
+        uploadMs: r.uploadMs,
+        durationMs: fcTimer(),
+      });
+      return r;
+    });
+  }
 
   const ghTimer = startTimer();
   logger.info({ event: EVENTS.GITHUB_FETCH_START, submissionId, repoUrl });
@@ -115,6 +181,11 @@ async function intake({ repoUrl }, { logger, signer }) {
     durationMs: ghTimer(),
   });
 
+  // Await the Filecoin upload here so the record is immutable with both video
+  // fields set. Null for video-less submissions — the pipeline then behaves
+  // byte-for-byte as before.
+  const video = videoUploadPromise ? await videoUploadPromise : null;
+
   const submission = SubmissionRecord.parse({
     submissionId,
     repoUrl,
@@ -123,6 +194,8 @@ async function intake({ repoUrl }, { logger, signer }) {
     readme: meta.readme,
     fileTree: meta.fileTree,
     fetchedAt: new Date().toISOString(),
+    demoVideoPieceCid: video ? video.pieceCid : null,
+    demoVideoRetrievalUrl: video ? video.retrievalUrl : null,
   });
 
   const { rootHash: submissionRootHash } =
@@ -178,7 +251,7 @@ async function intake({ repoUrl }, { logger, signer }) {
     });
   }
 
-  return {
+  const response = {
     submissionId,
     submissionRootHash,
     verdicts,
@@ -186,6 +259,31 @@ async function intake({ repoUrl }, { logger, signer }) {
     panelVerdictRootHash,
     panelVerdict,
   };
+
+  // Demo judge runs AFTER the panel and NEVER blocks it. Only when the
+  // submission carried a video. Any failure degrades to demoVerdict:null +
+  // demoVerdictError — the panel result above is untouched. Video-less
+  // submissions get no demo fields at all (byte-for-byte unchanged response).
+  if (video) {
+    try {
+      const { demoVerdictRootHash, demoVerdict } = await callDemoJudge(
+        { submissionId, submissionRootHash, videoPieceCid: video.pieceCid },
+        logger,
+      );
+      response.demoVerdict = demoVerdict;
+      response.demoVerdictRootHash = demoVerdictRootHash;
+    } catch (err) {
+      logger.error({
+        event: EVENTS.ERROR,
+        submissionId,
+        error: `demo judge failed: ${err.message}`,
+      });
+      response.demoVerdict = null;
+      response.demoVerdictError = err.message;
+    }
+  }
+
+  return response;
 }
 
 module.exports = { intake, AGENT_ID };

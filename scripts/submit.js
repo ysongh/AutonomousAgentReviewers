@@ -1,26 +1,59 @@
 #!/usr/bin/env node
-// Usage: node scripts/submit.js <github-repo-url>
-// POSTs the URL to intake (:4001/submit) and prints all judge verdicts.
+// Usage: node scripts/submit.js <github-repo-url> [--video <path-to.mp4>]
+// POSTs the URL to intake (:4001/submit) and prints all judge verdicts. With
+// --video, sends multipart form-data so intake stores the clip on Filecoin and
+// runs the demo judge; without it, sends JSON exactly as before.
+
+const fs = require('fs');
+const path = require('path');
 
 const INTAKE_URL = 'http://127.0.0.1:4001/submit';
 
+function parseArgs(argv) {
+  const args = { repoUrl: null, videoPath: null };
+  for (let i = 2; i < argv.length; i++) {
+    if (argv[i] === '--video') {
+      args.videoPath = argv[++i];
+    } else if (!args.repoUrl) {
+      args.repoUrl = argv[i];
+    }
+  }
+  return args;
+}
+
 async function main() {
-  const repoUrl = process.argv[2];
+  const { repoUrl, videoPath } = parseArgs(process.argv);
   if (!repoUrl) {
-    console.error('Usage: node scripts/submit.js <github-repo-url>');
+    console.error('Usage: node scripts/submit.js <github-repo-url> [--video <path-to.mp4>]');
+    process.exit(1);
+  }
+  if (videoPath && !fs.existsSync(videoPath)) {
+    console.error('Video file not found:', videoPath);
     process.exit(1);
   }
 
-  console.log('POST', INTAKE_URL, '->', repoUrl);
+  console.log('POST', INTAKE_URL, '->', repoUrl, videoPath ? `(+ video ${path.basename(videoPath)})` : '');
   const t0 = Date.now();
 
-  let resp;
-  try {
-    resp = await fetch(INTAKE_URL, {
+  let request;
+  if (videoPath) {
+    // Multipart: openAsBlob streams the file from disk (no full-buffer in the
+    // CLI). fetch sets the multipart content-type + boundary from the FormData.
+    const form = new FormData();
+    form.append('repoUrl', repoUrl);
+    form.append('video', await fs.openAsBlob(videoPath), path.basename(videoPath));
+    request = { method: 'POST', body: form };
+  } else {
+    request = {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ repoUrl }),
-    });
+    };
+  }
+
+  let resp;
+  try {
+    resp = await fetch(INTAKE_URL, request);
   } catch (e) {
     console.error('Could not reach intake at', INTAKE_URL);
     console.error('Is start-all.sh running? Underlying error:', e.message);
@@ -52,6 +85,9 @@ async function main() {
     failures = [],
     panelVerdictRootHash = null,
     panelVerdict = null,
+    demoVerdict = undefined,
+    demoVerdictRootHash = null,
+    demoVerdictError = null,
   } = parsed;
 
   console.log('\n=== PIPELINE COMPLETE in', elapsed, 's ===');
@@ -99,12 +135,31 @@ async function main() {
     console.log('(no panel verdict — aggregator was skipped or failed)');
   }
 
+  if (demoVerdict !== undefined) {
+    console.log('\n=== DEMO VERDICT (judge-demo) ===');
+    if (demoVerdict === null) {
+      console.log('(demo judge failed — panel above is unaffected)');
+      if (demoVerdictError) console.log('error:', demoVerdictError);
+    } else {
+      console.log('demoVerdictRootHash:', demoVerdictRootHash);
+      console.log('score:    ', demoVerdict.score, '/ 10');
+      console.log('reasoning:', demoVerdict.reasoning);
+      console.log('videoPieceCid:', demoVerdict.videoPieceCid);
+      console.log('evidence:');
+      for (const e of demoVerdict.evidence) console.log(`  - [${e.timestamp}] ${e.observation}`);
+      console.log('claims_check:');
+      for (const c of demoVerdict.claims_check) {
+        console.log(`  - [${c.verdict}]${c.timestamp ? ` @${c.timestamp}` : ''} ${c.claim}`);
+      }
+    }
+  }
+
   if (failures.length) {
     console.log('\n--- FAILURES ---');
     for (const f of failures) console.log(`  [${f.judgeId}] ${f.error}`);
   }
 
-  if (verdicts.length || panelVerdictRootHash) {
+  if (verdicts.length || panelVerdictRootHash || demoVerdictRootHash) {
     console.log('\nVerify any artifact on 0G:');
     for (const v of verdicts) {
       console.log('  node bootstrap/download.js', v.verdictRootHash, ` # round-1 ${v.judgeId}`);
@@ -116,6 +171,9 @@ async function main() {
         }
       }
       console.log('  node bootstrap/download.js', panelVerdictRootHash, ` # panel verdict`);
+    }
+    if (demoVerdictRootHash) {
+      console.log('  node bootstrap/download.js', demoVerdictRootHash, ` # demo verdict`);
     }
   }
 }

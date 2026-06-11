@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Kill anything listening on the Phase 1 ports. Useful when start-all.sh was
+# Kill anything listening on the agent ports. Useful when start-all.sh was
 # backgrounded, crashed, or its terminal is gone.
 
 set -euo pipefail
 
-ports=(4001 4002 4003 4004 4005 4100)
+ports=(4001 4002 4003 4004 4005 4006 4100)
 
 any_killed=0
 for port in "${ports[@]}"; do
