@@ -443,9 +443,11 @@ the data, fail loudly.
   score lands in `finalScores.demo`. The demo judge itself **never revises**
   (its verdict describes what the video showed). The full `DemoVerdict` is
   still returned **alongside** the panel as a sibling field on intake's
-  response. **react/types.ts** mirrors of these optional fields are deferred
-  to Phase 4 (the dashboard surface); they are all optional, so existing
-  runtime parsing is unaffected.
+  response. **react/types.ts** now mirrors these optional fields (Phase 4 —
+  `DemoVerdict`, `SubmissionRecord` video fields, `PanelVerdict.weights` /
+  `finalScores.demo` / `demoVerdictRootHash`, and the response-level
+  `demoVerdict` / `demoVideoError` / `demoVerdictError`); they are all
+  optional, so existing runtime parsing is unaffected.
 
 ## Aggregator (port 4005)
 
@@ -1155,6 +1157,59 @@ Phase 2 components (deliberation surface):
   workaround stays behind log-streamer's `/verify` endpoint. No
   syntax-highlighter library — `JSON.stringify(..., null, 2)` in a
   monospace `<pre>` is enough; do not pull in a highlighter.
+
+Phase 4 components (demo surface):
+- **Form multipart behavior.** `SubmissionForm` has an optional video
+  picker (`accept=".mp4,.webm,.mov"`, 150MB client-side cap mirroring
+  intake's multer cap). `useSubmission.submit(repoUrl, video?)` POSTs
+  **multipart `FormData`** (`repoUrl` + `video`, field name `video` to match
+  `upload.single('video')`) with **no** explicit `content-type` (the browser
+  must set the multipart boundary) when a video is attached; **without** a
+  video it sends the exact JSON request as before, so a no-video submit is
+  byte-for-byte unchanged. The form shows a "~4–5 min" expectation note
+  because transcode + Filecoin upload run inside the request.
+- `DemoVerdictCard` (`components/DemoVerdictCard.tsx`) — rendered by
+  `VerdictGrid` in the **last slot, only when `demoVerdict` exists** (so
+  judge-demo's role is `'demo'`, kept OUT of the `role === 'judge'` canonical
+  order — the three-text-judge grid is byte-identical on no-video runs).
+  Top-to-bottom: judge-demo badge + score (shared `scoreTone`), inline
+  `<video controls preload="metadata">` (range-streamed from the Filecoin
+  `retrievalUrl`; `onError` → muted "video unavailable" line, the card never
+  breaks), reasoning, **claims-check table** sorted **contradicted →
+  asserted-only → shown** with color-coded `claim-chip`s (green/amber/red),
+  timestamped evidence list, and a **"Score final by design — the Demo Judge
+  does not deliberate"** footer (NO deliberation footer — see the Phase 3
+  design decision). Hash affordances: `demoVerdictRootHash` copy + the same
+  `VerifyOn0GModal` (the `/verify` endpoint is hash-generic).
+- **Seek-link parsing rule** (`lib/SeekableText.tsx`). `SeekableText` splits a
+  string on `\b\d{1,2}:\d{2}\b` and renders each `MM:SS` as a `.seek-link`
+  button **only when an `onSeek` is passed**; with no `onSeek` it renders
+  plain text. Applied in three places: demo evidence observations,
+  claims_check timestamps, and the **text judges' `revisionReasoning`** (so a
+  cross-modal revision is click-and-see). `VerdictGrid` owns the single
+  `videoRef` + the `seek()` impl (set `currentTime`, scroll into view, play)
+  and derives `onSeek = demoVerdict && demoVideoRetrievalUrl ? seek :
+  undefined` — seek links are interactive ONLY when there is a player to seek.
+  The playable URL is NOT on the `/submit` response; `useDemoVideoUrl` recovers
+  it from the `SubmissionRecord` via the read-only `/verify/<submissionRootHash>`
+  endpoint (`content.demoVideoRetrievalUrl`).
+- **Degraded-state rendering rule** (`RunSummary`). A run that submitted a
+  video but lost it must be **visually distinct from a no-video run at a
+  glance**: `demoVideoError` → amber `⚠ video degraded — panel ran without
+  demo review` chip; `demoVerdictError` → amber `⚠ demo review failed` chip
+  (separate wording); both carry the error string in a `title` tooltip. On a
+  successful demo run, `RunSummary` appends a `Demo: N (K contradicted)`
+  segment (contradicted count shown only when nonzero). Held/revised/abstained
+  counts remain **text judges only**.
+- **Dynamic weights** (`PanelVerdictCard`). The weights tooltip is built from
+  `panelVerdict.weights` (self-describing — `0.35/0.25/0.25/0.15` with a demo,
+  `0.4/0.3/0.3` without), falling back to the fixed weights only when the field
+  is absent. A 4th `demo N` score badge renders when `finalScores.demo` is
+  present.
+- **Agent grid** gains a 7th card (`config.ts` `AGENTS` += judge-demo, role
+  `'demo'`); `deriveAgentState`'s `START_TO_COMPLETE` gains the
+  `demo-video-download-*` and `claude-demo-*` pairs so the card shows
+  "working" through a review. Idle on no-video runs.
 
 - **ONE round of deliberation.** The aggregator triggers a single
   round-2 revise call per judge, computes the panel verdict, and stops.
