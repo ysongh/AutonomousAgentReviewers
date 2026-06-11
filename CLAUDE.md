@@ -289,6 +289,15 @@ calibration disagreements still hold.
 
 ## Inter-agent flow (the bus)
 
+> **Phase 3 with-video variant (see "Video flow through intake").** When a
+> submission carries a video, the sequence becomes `transcode+upload →
+> SubmissionRecord → round 1 (3 text judges) → judge-demo /review →
+> aggregator /aggregate (+demoVerdictRootHash) → response`. The demo
+> `/review` runs **between round 1 and round 2** so its `claims_check` can
+> feed the text judges' deliberation; the aggregator uses conditional
+> weights. The diagram below is the no-video path (unchanged), which is
+> still exactly what runs for video-less submissions.
+
 Phase 1 pipeline — round-1 fan-out, round-2 deliberation through the
 aggregator, then a panel verdict, all synchronous from the CLI's view:
 
@@ -412,14 +421,31 @@ the data, fail loudly.
   the aggregator's log (the `judge-abstain-due-to-failure` event), NOT
   in the on-chain panel verdict — the panel records the outcome
   (abstained), the log records the cause.
+  **Phase 3 additions, all OPTIONAL** (a no-video run is byte-identical to
+  Phase 1/2): `weights` (the actual weights used — self-describing artifact),
+  `finalScores.demo` (present iff a demo participated; equals the round-1
+  `DemoVerdict` score — there is no demo revision), and `demoVerdictRootHash`.
+  `round1Verdicts` MAY include a `judge-demo` entry carrying `score`/`reasoning`
+  + a `claimsCheckSummary` string (counts: N shown / M asserted-only / K
+  contradicted) **instead of** `evidence[]` (the demo's timestamped-object
+  evidence/claims_check don't share the text judges' `string[]` shape, so
+  `evidence` is optional). `round2Revisions` contains **ONLY the three text
+  judges** — never `judge-demo`.
 - `DemoVerdict` — the demo judge's artifact, uploaded to **0G** (not
   Filecoin) by the `judge-demo` wallet. `{ agentId: "judge-demo",
   submissionId, score (0-10 int), reasoning, evidence: [{ timestamp
   "MM:SS", observation }] (min 3), claims_check: [{ claim, verdict:
   "shown"|"asserted-only"|"contradicted", timestamp: string|null }],
-  videoPieceCid, producedAt }`. Phase 2 returns it **alongside** the
-  panel (a sibling field on intake's response), NOT aggregated into the
-  `PanelVerdict` — deliberation integration is Phase 3.
+  videoPieceCid, producedAt }`. **Phase 3:** the demo `claims_check` feeds
+  the three text judges' round-2 deliberation as cross-modal evidence (the
+  `demoVerdictRootHash` travels as a SEPARATE `/revise` field, never mixed
+  into `peerVerdictRootHashes` — different schema), and the demo's round-1
+  score lands in `finalScores.demo`. The demo judge itself **never revises**
+  (its verdict describes what the video showed). The full `DemoVerdict` is
+  still returned **alongside** the panel as a sibling field on intake's
+  response. **react/types.ts** mirrors of these optional fields are deferred
+  to Phase 4 (the dashboard surface); they are all optional, so existing
+  runtime parsing is unaffected.
 
 ## Aggregator (port 4005)
 
@@ -430,38 +456,52 @@ wallet (`AGGREGATOR_*` in `.env.agents`).
 
 Endpoint:
 - `POST /aggregate { submissionId, submissionRootHash,
-  verdictRootHashes: { technical, originality, skeptic } }` —
-  body carries only hashes + the submission id, same rule as the rest
-  of the bus.
+  verdictRootHashes: { technical, originality, skeptic },
+  demoVerdictRootHash? }` — body carries only hashes + the submission id,
+  same rule as the rest of the bus. `demoVerdictRootHash` is the OPTIONAL
+  Phase 3 cross-modal field (present only when a demo review succeeded).
 
 Deliberation flow (`agents/aggregator/handler.js → aggregate()`):
-1. Download all three round-1 verdicts from 0G via `Promise.allSettled`.
-   If any download fails or any cross-wire check fails (`agentId` /
-   `submissionId` mismatch), aggregate hard-fails — the round-1 verdicts
-   were just uploaded by the intake-orchestrated fan-out, so a missing
-   read is genuinely abnormal.
-2. Fan out `POST /revise` to all three judges in parallel. Each judge
+1. Download all three round-1 verdicts from 0G (and, if `demoVerdictRootHash`
+   is present, the `DemoVerdict`) in parallel. If any download fails or any
+   cross-wire check fails (`agentId` / `submissionId` mismatch), aggregate
+   hard-fails — these were just uploaded by intake, so a missing read is
+   genuinely abnormal. (Intake degrades to 3-judge mode by simply NOT passing
+   `demoVerdictRootHash`; the demo never *partially* participates here.)
+2. Fan out `POST /revise` to all three TEXT judges in parallel. Each judge
    sees its own original verdict + the other two judges' verdicts (peer
-   list excludes self). `Promise.allSettled` again — a failure here
-   becomes an abstain.
-3. Compute `finalScores[k] = revised ? revisedScore : round1Score`.
-4. Compute `weightedAggregate = 0.4·tech + 0.3·orig + 0.3·skep`,
-   `spread = max - min`, `dissent = spread >= 2`.
+   list excludes self) + (if present) the demo verdict as cross-modal
+   evidence in a separate field. `Promise.allSettled` again — a failure here
+   becomes an abstain. **judge-demo gets no revise call.**
+3. Compute `finalScores[k] = revised ? revisedScore : round1Score` for the
+   three text judges; `finalScores.demo = demoScore` (no revision) when a
+   demo participated.
+4. Compute `weightedAggregate` with **conditional weights** (with demo:
+   0.35·tech + 0.25·orig + 0.25·skep + 0.15·demo; without: 0.4·tech +
+   0.3·orig + 0.3·skep), `spread = max - min` across all final scores,
+   `dissent = spread >= 2`.
 5. If `dissent`, one `callJudge` with `toolName='summarize_dissent'`
-   produces a 1-2 sentence neutral summary. Otherwise the summary is
-   the deterministic string `"Panel converged at score N."` — no LLM
-   call on the converged path.
-6. Build the `PanelVerdict`, zod-validate, and upload on the
-   aggregator's wallet.
+   produces a 1-2 sentence neutral summary (the demo's stance is included
+   in the summarizer input when present). Otherwise the summary is the
+   deterministic string `"Panel converged at score N."` — no LLM call on
+   the converged path.
+6. Build the `PanelVerdict` (incl. `weights`, `finalScores.demo`,
+   `demoVerdictRootHash`, and a judge-demo `round1Verdicts` entry when a
+   demo participated; `round2Revisions` stays the three text judges),
+   zod-validate, and upload on the aggregator's wallet.
 
-Weighting rationale: technical gets the largest share (0.4) because code
-quality is the most empirically grounded axis — the judge can cite
-specific files. Originality is partially blind (no web access; the judge
-falls back to "I don't recognize this" which is not the same as "this is
-new"). Skeptic is intentionally biased low and exists to balance the
+Weighting rationale: technical gets the largest share (0.4, or 0.35 with a
+demo) because code quality is the most empirically grounded axis — the judge
+can cite specific files. Originality is partially blind (no web access; the
+judge falls back to "I don't recognize this" which is not the same as "this
+is new"). Skeptic is intentionally biased low and exists to balance the
 panel's average-case agreement bias. Originality and skeptic get equal
-0.3 weight so the skeptic's calibration doesn't dominate but its dissent
-is still meaningful.
+weight so the skeptic's calibration doesn't dominate but its dissent is
+still meaningful. The demo's 0.15 share (when present) is deliberately the
+smallest: it judges the *demo artifact*, a presentation layer, not the code
+itself — meaningful but not dominant. The three text weights scale down
+proportionally to make room, and the actual weights are recorded in
+`PanelVerdict.weights`.
 
 Abstention semantics — two distinct cases the panel records identically
 (`revised: false`, no score, no reasoning) but the log distinguishes:
@@ -485,22 +525,44 @@ returns `503` to intake, which propagates the failure to the CLI as a
 re-submit signal. This is the only retry permitted anywhere in the bus;
 all other 0G writes fail loud and let the caller decide.
 
-## Demo Judge (Phase 2, port 4006)
+## Demo Judge (Phase 2/3, port 4006)
 
-The Demo Judge is an **optional 4th-judge-style reviewer** of a
-submission's demo video. A submission may include a video; if it does,
-intake stores it on **Filecoin Warm Storage** and `judge-demo` reviews it
+The Demo Judge is an **optional 4th reviewer** of a submission's demo
+video. A submission may include a video; if it does, intake transcodes it,
+stores it on **Filecoin Warm Storage**, and `judge-demo` reviews it
 multimodally, producing a `DemoVerdict` on **0G**. **Additive, not a
 migration** — JSON verdicts stay on 0G; Filecoin holds ONLY the video.
-This phase returns the `DemoVerdict` **alongside** the panel; aggregating
-the demo score into the `PanelVerdict`/deliberation is **Phase 3**, and
-the dashboard surface is **Phase 4**.
 
-> **Implementation status.** Fully wired end to end: the Filecoin client
-> (`shared/filecoin-storage.js`), the schemas (`DemoVerdict` + the
-> `SubmissionRecord` video fields), the sixth wallet, the
-> `agents/judge-demo` service, intake's multipart submit path + Filecoin
-> upload + post-aggregator `/review` hop, the `scripts/submit.js --video`
+**Phase 3 changed two things:**
+1. **The demo evidence now feeds deliberation.** The pipeline is
+   re-sequenced to `round 1 (3 text judges) → demo judge → round 2 (3
+   text judges, now with the demo's `claims_check` as cross-modal
+   evidence) → panel with conditional weights`. The dashboard surface is
+   still **Phase 4**.
+2. **The video path is hardened** — transcode at intake, one upload
+   retry, degrade-to-no-video on persistent failure (see Video flow).
+
+> **DESIGN DECISION — the Demo Judge does NOT deliberate (v1).** Its
+> verdict describes *what the video showed*, which peer evidence cannot
+> change — so it has **no `/revise` endpoint**, **never appears in
+> `round2Revisions`**, and its **round-1 score IS its final score**
+> (`finalScores.demo` comes straight from the round-1 `DemoVerdict`).
+> What flows onward is its `claims_check`, injected into the three text
+> judges' revise prompts as cross-modal evidence. Revisit full
+> participation only if data ever suggests demo scores should move.
+> **Phase 4 note:** the demo verdict card renders no deliberation footer
+> ("final by design"), and `RunSummary`'s held/revised/abstained counts
+> cover the **text judges only**.
+
+> **Implementation status (Phase 3).** Fully wired end to end: the
+> Filecoin client (`shared/filecoin-storage.js`, now with a single upload
+> retry), the schemas (`DemoVerdict`, the `SubmissionRecord` video fields,
+> and the `PanelVerdict` `weights`/`finalScores.demo`/`demoVerdictRootHash`
+> + judge-demo `round1Verdicts` entry), the sixth wallet, the
+> `agents/judge-demo` service, intake's multipart submit path + transcode +
+> retrying Filecoin upload + degrade + the **pre-aggregator** `/review`
+> hop, the aggregator's cross-modal round 2 + conditional weights, each
+> text judge's cross-modal `/revise`, the `scripts/submit.js --video`
 > flag, and `judge-demo` in `start-all.sh`/`stop-all.sh`. The demo judge
 > can also be exercised in isolation by POSTing `/review` directly with a
 > `submissionRootHash` whose record already has the video fields.
@@ -509,12 +571,26 @@ the dashboard surface is **Phase 4**.
 
 Productionized from `bootstrap-filecoin/`. ONLY intake imports it. Exports:
 - `uploadVideo(filePathOrBuffer) → { pieceCid, retrievalUrl, uploadMs,
-  sizeBytes }` — uploads the video to Warm Storage and returns the
-  content-addressed PieceCID + a plain-HTTP, range-capable `retrievalUrl`.
+  sizeBytes, attempts }` — uploads the video to Warm Storage and returns
+  the content-addressed PieceCID + a plain-HTTP, range-capable
+  `retrievalUrl`, plus the number of attempts used (1 or 2).
 - `assertRunway() → { address, tfil, usdfcDeposited }` — read-only startup
   gate; fails loud if the wallet can't pay gas or has no USDFC runway. Does
   **NO** payment setup at runtime (the spike wallet's USDFC deposit +
   operator approval are already done).
+
+**Single upload retry (Phase 3).** `copies: 1` has no provider failover,
+so a degraded provider hard-fails the whole upload. `uploadVideo` now
+retries **exactly once**: on the first failure it reads which provider was
+selected (captured via the `onProviderSelected` callback — provider objects
+carry a numeric `id`) and excludes that id on the second attempt (composed
+with `FILECOIN_EXCLUDE_PROVIDER_IDS`), forcing the SDK onto a different
+provider. **Two attempts MAX**, then it throws and intake degrades to
+no-video. This is the ONLY retry in the Filecoin path; it lives in this
+module (not a loop in intake) because only this module knows the SDK's
+provider-selection surface. It is a single retry, **not a retry loop**, and
+`og-storage.js` stays retry-free as before. Logged as `filecoin-upload-retry`
+with the failed provider id + the composed exclude list.
 
 Footguns (the 0G-lesson family, all reproduced in the module's header):
 - **ESM-only SDK from a CommonJS module.** `@filoz/synapse-sdk` (v0.41+)
@@ -531,16 +607,19 @@ Footguns (the 0G-lesson family, all reproduced in the module's header):
 - **`copies: 1` has NO provider failover** (the `copies: 2` default is what
   buys it). If the selected Warm Storage provider's piece-store endpoint is
   degraded, the upload hard-fails with `Failed to store piece on service
-  provider - Network request failed` — and because intake awaits the upload
-  before the immutable `SubmissionRecord` (see the trade-off below), that
-  surfaces as a **submit 500**. Escape hatch:
-  `FILECOIN_EXCLUDE_PROVIDER_IDS=<id[,id…]>` (root `.env`) →
-  `excludeProviderIds`, forcing the SDK onto a healthy provider (a new data
-  set is created there). Defaults to none. Observed 2026-06-10: an 87MB mp4
-  failed mid-transfer at ~21s on **two different** providers while a 2KB
-  piece uploaded fine on the same providers — so large-transfer flakiness is
-  real and provider-agnostic on Calibration; prefer a smaller/transcoded clip
-  or `copies: 2` if it persists.
+  provider - Network request failed`. **Phase 3 mitigates this two ways**:
+  (a) intake transcodes to ~720p first, moving uploads into the empirically
+  reliable small band, and (b) `uploadVideo` retries once on a different
+  provider (see "Single upload retry" above). If BOTH attempts fail, intake
+  **degrades to no-video** rather than 500-ing the whole submission (Phase 2
+  awaited the upload before the immutable `SubmissionRecord`, so a failure
+  *did* surface as a submit 500 — that is no longer true). Manual escape
+  hatch still available: `FILECOIN_EXCLUDE_PROVIDER_IDS=<id[,id…]>` (root
+  `.env`) → `excludeProviderIds`, forcing the SDK onto a healthy provider.
+  Defaults to none. Observed 2026-06-10: an 87MB mp4 failed mid-transfer at
+  ~21s on **two different** providers while a 2KB piece uploaded fine on the
+  same providers — so large-transfer flakiness is real and provider-agnostic
+  on Calibration; the transcode is the primary defense.
 - **Wallet reuse.** `FILECOIN_PRIVATE_KEY` in root `.env` reuses the
   funded `bootstrap-filecoin` spike wallet. NEVER reuse a 0G AAR key.
 
@@ -572,26 +651,84 @@ Same discipline as the spike: ONE Claude call, no retries, no multi-pass;
 to v6, and the demo judge reuses `shared/claude.js` rather than constructing
 its own Anthropic client. The `Frame N — t=MM:SS` labeling contract is kept.
 
-### Video flow through intake
+**judge-demo has NO `/revise` endpoint** and is never added to
+`round2Revisions` — it is evidence-provider-only (see the Phase 3 design
+decision above). Do not build one; its round-1 score is final by design.
+
+### Video flow through intake (Phase 3 re-sequenced)
 
 Intake accepts multipart `/submit` with an optional `video` field
-(mp4/webm/mov, 150MB cap, streamed to a temp file by **multer**); it starts
-`uploadVideo(...)` immediately and **awaits it just before uploading the
-`SubmissionRecord`** so the record is immutable with both video fields set.
-(Intake also runs `assertRunway()` once at startup and exits if the Filecoin
-wallet can't pay — no payment setup at runtime.) **Trade-off (accepted):** the Filecoin
-upload (~90–150s) sits on the critical path *before* round 1 rather than
-hidden behind it, because the record is immutable once on 0G — `uploadMs` is
-logged to measure the real cost. (A future optimization — local PieceCID
-precomputation to hide the latency — is a Phase 3 candidate, not done here.)
-After the aggregator returns the panel, intake calls judge-demo `/review`,
-awaits it, downloads + validates the `DemoVerdict`, and returns it as sibling
-fields `{ ...response, demoVerdict, demoVerdictRootHash }`.
+(mp4/webm/mov, 150MB cap, streamed to a temp file by **multer**). When a
+video is present, intake runs (overlapping the GitHub fetch):
+
+1. **Transcode** (`agents/intake/transcode.js`, ONE ffmpeg pass) — fit
+   inside a 1280×720 box (preserve aspect, never upscale, even dims),
+   H.264 ~1.5 Mbps, AAC ~96 kbps, `+faststart`. 720p is lossless for the
+   demo judge (it extracts 768px-wide frames) and moves typical uploads
+   into the empirically reliable small band. Logged
+   `video-transcode-start/complete` with `inputBytes`/`outputBytes`. ONE
+   attempt — on ffmpeg failure, degrade.
+2. **Upload** the transcoded mp4 via `uploadVideo` (which itself retries
+   once on a fresh provider). On persistent failure, degrade.
+
+**Degrade-to-no-video** (the upstream generalization of "the demo judge
+never blocks the panel" → **video never blocks the panel**): if transcode
+fails OR both upload attempts fail, intake logs `video-degraded`, sets
+`demoVideoPieceCid`/`demoVideoRetrievalUrl` to **null** on the record,
+proceeds with the normal no-video flow (full 3-judge panel), and includes
+`demoVideoError: <string>` in the HTTP **response only** (the record just
+has null fields).
+
+The video work is **awaited just before uploading the `SubmissionRecord`**
+so the record is immutable with both video fields set. (Intake also runs
+`assertRunway()` once at startup and exits if the Filecoin wallet can't
+pay.) **Trade-off (accepted):** transcode + upload sit on the critical path
+*before* round 1; `uploadMs` + transcode durations are logged to measure
+the real cost. (Local PieceCID precomputation to hide latency remains a
+future optimization, not done here.)
+
+**Re-sequenced pipeline (with video):**
+`transcode+upload → SubmissionRecord on 0G → round 1 (3 text judges) →
+judge-demo /review → aggregator /aggregate (passed demoVerdictRootHash) →
+response`. The demo `/review` now runs **between round 1 and round 2** (not
+after the panel) so its `claims_check` can feed deliberation. Intake
+downloads + validates the `DemoVerdict`, then passes `demoVerdictRootHash`
+to the aggregator. The response carries sibling fields
+`{ ...response, demoVerdict, demoVerdictRootHash }`.
 
 **The demo judge NEVER blocks the panel.** If `/review` fails at any layer,
-intake logs it and returns `demoVerdict: null` + `demoVerdictError: <string>`
-— the panel result is unaffected. Submissions **without** a video behave
-byte-for-byte as before: no Filecoin call, no demo fields on the response.
+intake logs it, passes `demoVerdictRootHash: null` to the aggregator
+(3-judge mode), and returns `demoVerdict: null` + `demoVerdictError:
+<string>` — the panel is always produced. Submissions **without** a video
+behave byte-for-byte as before: no transcode, no Filecoin call, no
+OpenAI/demo events, no demo fields on the response.
+
+### Aggregator cross-modal round 2 (Phase 3)
+
+`POST /aggregate` gains an OPTIONAL `demoVerdictRootHash`. When present, the
+aggregator downloads + validates the `DemoVerdict` (own schema; submissionId
++ `agentId === 'judge-demo'` cross-wire checks) alongside the round-1 text
+verdicts. The round-2 fan-out stays **exactly three** text-judge `/revise`
+calls in parallel — **judge-demo receives no revise call**. Each text
+judge's `/revise` body gains a **separate** optional `demoVerdictRootHash`
+field — **NOT** appended to `peerVerdictRootHashes`, because a `DemoVerdict`
+and a `JudgeVerdict` have different schemas; the judge downloads + validates
+it independently and renders a labeled "CROSS-MODAL EVIDENCE FROM THE DEMO
+VIDEO REVIEW" section (demo score, reasoning, timestamped evidence, full
+`claims_check`) into its revise prompt. Prompt contract: a `shown` entry is
+concrete evidence a claimed feature works; a `contradicted` entry is
+concrete evidence of a gap; both count under the existing evidence test
+**only if they cite a timestamp**; `asserted-only` is not evidence either
+way. `finalScores.demo` is the demo's round-1 score (no revision); the panel
+records the conditional `weights`, `demoVerdictRootHash`, and a judge-demo
+`round1Verdicts` entry carrying a `claimsCheckSummary` count string.
+
+**Conditional weights:** with demo → `0.35/0.25/0.25/0.15`
+(technical/originality/skeptic/demo); without → `0.4/0.3/0.3` (unchanged,
+so no-video runs are byte-identical to Phase 1/2). `spread` and `dissent`
+are computed across however many final scores exist. The actual weights
+used are recorded in `PanelVerdict.weights`, making the artifact
+self-describing.
 
 ### Measured end-to-end (Phase 2 verification, 2026-06-10)
 
@@ -615,6 +752,68 @@ and "Originality agent runs without errors" as `contradicted` (a visible error
 card at 02:37). No 429s in either verification run. The no-video regression on
 `sindresorhus/is` was byte-for-byte unchanged (zero Filecoin/OpenAI/demo
 events, judge-demo untouched, no demo fields on the response).
+
+### Measured end-to-end (Phase 3 cross-modal verification, 2026-06-11)
+
+Four live runs on Galileo + Calibration, nothing mocked:
+
+- **No-video regression** (`sindresorhus/is`): panel with `weights
+  0.4/0.3/0.3` (no demo), three-judge round 2 (all held), zero
+  filecoin/transcode/demo/OpenAI events, no demo fields on the response —
+  byte-for-byte Phase-1/2 behavior. 79.1s.
+- **Transcode regression** (the original **87MB** mp4 that failed twice in
+  Phase 2, on `ysongh/AutonomousAgentReviewers`): transcoded
+  **91,478,473 → 22,834,445 bytes** (~4× reduction) in 46.7s, then uploaded
+  on **attempts=1** (transcode moved it into the reliable small band). The
+  large-upload flakiness is now routed around by the transcode alone.
+- **Cross-modal run** (same repo + the real 3:51 narrated demo): total
+  wall-clock **283.2s** — transcode 46.7s (overlaps the 0.7s GitHub fetch),
+  Filecoin upload 91.3s (critical path), SubmissionRecord 0G upload 11.5s,
+  round 1 (3 concurrent) ~30.6s, demo `/review` hop 63.9s, aggregator
+  (round 2 + panel) 38.3s. Demo Claude call **10,541 input / 1,171 output**.
+  Round-2 fan-out was **exactly three** `/revise` calls (technical,
+  originality, skeptic — judge-demo received none, confirmed in the
+  aggregator log); each text judge's `claude-revise-start` carried
+  `crossModal: true`. Panel: 4 `finalScores` (tech 7, orig 8, skep 7,
+  **demo 7**), `weights 0.35/0.25/0.25/0.15`, `demoVerdictRootHash`
+  recorded, `round2Revisions` = the three text judges.
+  **Two cross-modal revisions fired** — the hunt's prize:
+  - **judge-skeptic 5→7** (clean cross-modal): cited the demo's `shown`
+    evidence verbatim — "at [02:54] and [03:10], all five agent cards are
+    visibly running with real 0G Storage root hashes, and [03:27] shows a
+    completed pipeline … meaning the agent directories I couldn't see in
+    the file tree do actually exist and run." A `shown` timestamped entry
+    resolved a gap the skeptic flagged in round 1.
+  - **judge-technical 8→7**: moved by the skeptic's structural evidence
+    *and* the demo ("the pipeline visibly runs at 02:54–03:43 … but the
+    [02:37] Originality error state … introduce legitimate completeness
+    concerns").
+  - judge-originality held. DemoVerdict: score 7, 5 timestamped evidence,
+    **12 `claims_check`** (9 shown / 3 asserted-only / 0 contradicted).
+- **Forced degradation** (`FILECOIN_EXCLUDE_PROVIDER_IDS=2,5,4,9` — all four
+  active Calibration providers): transcode succeeded, then
+  `filecoin-upload-start → filecoin-upload-retry (attempt 1, no provider to
+  exclude) → second attempt fails → video-degraded` with
+  `StorageContext smartSelect failed: No endorsed provider available`.
+  Intake set both video fields to **null** on the record, ran the full
+  3-judge panel (`weights 0.4/0.3/0.3`), and returned `demoVerdict: null` +
+  `demoVideoError` on the response. The panel was never blocked. 121.7s.
+
+**Round-2 token burst (cross-modal run):** the three revise calls ran in
+parallel at **4,186 / 4,484 / 4,582 input tokens** (combined **13,252**;
+outputs 278 / 33 / 269) — the embedded `claims_check` adds ~1K per prompt
+over a no-demo revise, still a fraction of the 30K/min org window across
+three concurrent calls. **Zero 429s** across all four runs.
+
+> **Footgun found during verification:** `prepareVideo`'s cleanup `finally`
+> referenced `fs` without importing it in `agents/intake/handler.js` — a
+> successful transcode+upload then threw `fs is not defined` in the finally
+> and **silently degraded a perfectly good video to no-video**. The degrade
+> path is so robust it masked the bug (panel still produced); only the
+> `demoVideoError: "fs is not defined"` on the response gave it away. Fixed
+> by importing `fs` at the top of the handler. Lesson: a degrade-to-no-video
+> path will happily swallow programmer errors — always read `demoVideoError`,
+> not just "did the panel come back."
 
 ## Running it
 
@@ -745,7 +944,17 @@ Canonical event vocabulary (exported as `EVENTS` from `aar-shared/logger`):
 - `transcript-complete` — Phase 2, judge-demo Stage B whisper-1 transcript
 - `claude-demo-start`, `claude-demo-complete` — Phase 2, judge-demo's single
   multimodal Claude call (carries `usage`)
+- `video-transcode-start`, `video-transcode-complete` — Phase 3, intake's
+  one-pass 720p normalization (carries `inputBytes`/`outputBytes`)
+- `filecoin-upload-retry` — Phase 3, intake's single Filecoin upload retry
+  after the first provider failed (carries the failed provider id + reason)
+- `video-degraded` — Phase 3, transcode or both upload attempts failed;
+  intake proceeds with null video fields (carries the `error`)
 - `error`
+
+Phase 3 also adds a `crossModal: true|false` field on each text judge's
+`claude-revise-start` entry — the verifiable signal that the demo's
+cross-modal evidence was delivered into that judge's round-2 prompt.
 
 Use `startTimer()` from the same module to populate `durationMs`:
 ```js

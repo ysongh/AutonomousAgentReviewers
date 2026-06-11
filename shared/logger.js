@@ -31,6 +31,13 @@ const EVENTS = {
   // multimodal review happens on judge-demo (port 4006).
   FILECOIN_UPLOAD_START: 'filecoin-upload-start',
   FILECOIN_UPLOAD_COMPLETE: 'filecoin-upload-complete',
+  // Video resilience (Phase 3), all on intake: transcode normalizes the upload
+  // into the reliable small band; the upload gets ONE retry on a fresh provider;
+  // a persistent failure degrades the submission to no-video (panel unaffected).
+  VIDEO_TRANSCODE_START: 'video-transcode-start',
+  VIDEO_TRANSCODE_COMPLETE: 'video-transcode-complete',
+  FILECOIN_UPLOAD_RETRY: 'filecoin-upload-retry', // carries the retry reason
+  VIDEO_DEGRADED: 'video-degraded', // carries the error; record video fields set null
   DEMO_REVIEW_START: 'demo-review-start', // intake -> judge-demo hop lifecycle
   DEMO_REVIEW_COMPLETE: 'demo-review-complete',
   DEMO_VIDEO_DOWNLOAD_START: 'demo-video-download-start', // judge-demo fetches the mp4 over HTTP

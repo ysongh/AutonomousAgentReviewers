@@ -27,6 +27,7 @@
 // the root .env. NEVER reuses any 0G AAR key.
 
 const fs = require('fs');
+const { EVENTS } = require('./logger');
 
 // --- runway thresholds -------------------------------------------------------
 // Read-only sanity gates checked at intake startup. We do no payment setup at
@@ -97,10 +98,33 @@ async function assertRunway() {
   };
 }
 
+// Operational escape hatch: comma-separated provider ids to avoid. With copies:1
+// there is NO provider failover (the copies:2 default is what gives you that), so
+// if the selected Warm Storage provider's piece-store endpoint is degraded, set
+// FILECOIN_EXCLUDE_PROVIDER_IDS=<id[,id...]> in the root .env to force the SDK
+// onto a healthy provider (a new data set is created there). Defaults to none.
+function parseExcludeEnv() {
+  return (process.env.FILECOIN_EXCLUDE_PROVIDER_IDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => BigInt(s));
+}
+
 // Upload a demo video to Warm Storage. Accepts a file path (string), a Buffer,
-// or a Uint8Array. Returns the content-addressed PieceCID and an HTTP-streamable
-// retrievalUrl (video/mp4, range-capable) that the demo judge fetches directly.
-async function uploadVideo(filePathOrBuffer, { logger } = {}) {
+// or a Uint8Array. Returns the content-addressed PieceCID, an HTTP-streamable
+// retrievalUrl (video/mp4, range-capable) that the demo judge fetches directly,
+// and the number of attempts used.
+//
+// Phase 3 resilience: ONE retry. copies:1 has no failover, so a degraded
+// provider's piece-store hard-fails the whole upload. On the first failure we
+// learn which provider was selected (via onProviderSelected) and exclude it on
+// the second attempt (composed with FILECOIN_EXCLUDE_PROVIDER_IDS), forcing the
+// SDK onto a different provider. Two attempts MAX — then we throw and intake
+// degrades to no-video. This is the only retry in the Filecoin path; it lives
+// here (not in a loop in intake) because only this module knows the SDK's
+// provider-selection surface. NOT a retry loop.
+async function uploadVideo(filePathOrBuffer, { logger, submissionId } = {}) {
   const { synapse } = await getClient();
 
   let bytes;
@@ -115,46 +139,64 @@ async function uploadVideo(filePathOrBuffer, { logger } = {}) {
   }
   const sizeBytes = bytes.byteLength;
 
-  // Operational escape hatch: comma-separated provider ids to avoid. With
-  // copies:1 there is NO provider failover (the copies:2 default is what gives
-  // you that), so if the selected Warm Storage provider's piece-store endpoint
-  // is degraded, set FILECOIN_EXCLUDE_PROVIDER_IDS=<id[,id...]> to force the SDK
-  // onto a healthy provider (a new data set is created there). Defaults to none.
-  const excludeProviderIds = (process.env.FILECOIN_EXCLUDE_PROVIDER_IDS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => BigInt(s));
+  const excluded = parseExcludeEnv(); // grows by the failed provider id on retry
+  let lastErr;
 
-  const t0 = Date.now();
-  const result = await synapse.storage.upload(bytes, {
-    // v1: single copy; revisit 2-copy redundancy for production. The SDK
-    // defaults to 2 copies across providers (doubles lockup + piece-add txs).
-    copies: 1,
-    ...(excludeProviderIds.length ? { excludeProviderIds } : {}),
-    callbacks: {
-      onProviderSelected: (p) =>
-        logger?.info({ event: 'filecoin-provider-selected', provider: p.serviceProvider ?? p.payee }),
-      onDataSetResolved: (i) =>
-        logger?.info({ event: 'filecoin-dataset-resolved', dataSetId: String(i.dataSetId) }),
-      onPiecesConfirmed: (dataSetId, providerId, pieces) =>
-        logger?.info({
-          event: 'filecoin-pieces-confirmed',
-          dataSetId: String(dataSetId),
-          providerId: String(providerId),
-          pieces: pieces.length,
-        }),
-    },
-  });
-  const uploadMs = Date.now() - t0;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    let selectedId = null; // numeric provider id captured this attempt
+    const t0 = Date.now();
+    try {
+      const result = await synapse.storage.upload(bytes, {
+        // v1: single copy; revisit 2-copy redundancy for production. The SDK
+        // defaults to 2 copies across providers (doubles lockup + piece-add txs).
+        copies: 1,
+        ...(excluded.length ? { excludeProviderIds: excluded } : {}),
+        callbacks: {
+          onProviderSelected: (p) => {
+            selectedId = p?.id != null ? String(p.id) : null;
+            logger?.info({
+              event: 'filecoin-provider-selected',
+              providerId: selectedId,
+              provider: p?.serviceProvider ?? p?.payee,
+            });
+          },
+          onDataSetResolved: (i) =>
+            logger?.info({ event: 'filecoin-dataset-resolved', dataSetId: String(i.dataSetId) }),
+          onPiecesConfirmed: (dataSetId, providerId, pieces) =>
+            logger?.info({
+              event: 'filecoin-pieces-confirmed',
+              dataSetId: String(dataSetId),
+              providerId: String(providerId),
+              pieces: pieces.length,
+            }),
+        },
+      });
+      const uploadMs = Date.now() - t0;
 
-  const pieceCid = result.pieceCid.toString();
-  const retrievalUrl = result.copies[0]?.retrievalUrl;
-  if (!retrievalUrl) {
-    throw new Error(`Filecoin upload returned no retrievalUrl (pieceCid=${pieceCid})`);
+      const pieceCid = result.pieceCid.toString();
+      const retrievalUrl = result.copies[0]?.retrievalUrl;
+      if (!retrievalUrl) {
+        throw new Error(`Filecoin upload returned no retrievalUrl (pieceCid=${pieceCid})`);
+      }
+      return { pieceCid, retrievalUrl, uploadMs, sizeBytes, attempts: attempt };
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= 2) break; // out of retries — degrade upstream
+      // Force the SDK off the provider that just failed, if we learned its id.
+      if (selectedId && !excluded.includes(BigInt(selectedId))) {
+        excluded.push(BigInt(selectedId));
+      }
+      logger?.info({
+        event: EVENTS.FILECOIN_UPLOAD_RETRY,
+        submissionId,
+        attempt,
+        reason: err.message,
+        excludedProviderId: selectedId,
+        excludeProviderIds: excluded.map(String),
+      });
+    }
   }
-
-  return { pieceCid, retrievalUrl, uploadMs, sizeBytes };
+  throw lastErr;
 }
 
 module.exports = { uploadVideo, assertRunway };

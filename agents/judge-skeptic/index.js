@@ -30,10 +30,13 @@ app.post('/judge', async (req, res) => {
 });
 
 app.post('/revise', async (req, res) => {
-  const { submissionId, originalVerdictRootHash, peerVerdictRootHashes } = req.body || {};
+  // demoVerdictRootHash is OPTIONAL cross-modal evidence — present only when the
+  // submission had a successfully-reviewed demo video.
+  const { submissionId, originalVerdictRootHash, peerVerdictRootHashes, demoVerdictRootHash } =
+    req.body || {};
   try {
     const result = await revise(
-      { submissionId, originalVerdictRootHash, peerVerdictRootHashes },
+      { submissionId, originalVerdictRootHash, peerVerdictRootHashes, demoVerdictRootHash },
       { logger, signer },
     );
     res.json(result);

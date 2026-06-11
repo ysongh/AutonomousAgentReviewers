@@ -1,6 +1,6 @@
 const { uploadJSON, downloadJSON } = require('aar-shared/og-storage');
 const { callJudge } = require('aar-shared/claude');
-const { SubmissionRecord, JudgeVerdict, RevisedVerdict } = require('aar-shared/schemas');
+const { SubmissionRecord, JudgeVerdict, RevisedVerdict, DemoVerdict } = require('aar-shared/schemas');
 const { AGENT_IDS } = require('aar-shared/config');
 const { EVENTS, startTimer } = require('aar-shared/logger');
 const {
@@ -68,7 +68,7 @@ async function judge({ submissionRootHash, submissionId }, { logger, signer }) {
 }
 
 async function revise(
-  { submissionId, originalVerdictRootHash, peerVerdictRootHashes },
+  { submissionId, originalVerdictRootHash, peerVerdictRootHashes, demoVerdictRootHash },
   { logger, signer },
 ) {
   if (!submissionId) throw new Error('submissionId is required');
@@ -86,10 +86,14 @@ async function revise(
     peerCount: peerVerdictRootHashes.length,
   });
 
-  const [ownRaw, ...peerRaws] = await Promise.all([
+  // Download own + peers + (optionally) the cross-modal demo verdict in one go.
+  const [ownRaw, ...restRaws] = await Promise.all([
     downloadJSON(originalVerdictRootHash, { logger, submissionId }),
     ...peerVerdictRootHashes.map((h) => downloadJSON(h, { logger, submissionId })),
+    ...(demoVerdictRootHash ? [downloadJSON(demoVerdictRootHash, { logger, submissionId })] : []),
   ]);
+  const peerRaws = restRaws.slice(0, peerVerdictRootHashes.length);
+  const demoRaw = demoVerdictRootHash ? restRaws[restRaws.length - 1] : null;
 
   const ownVerdict = JudgeVerdict.parse(ownRaw);
   if (ownVerdict.submissionId !== submissionId) {
@@ -115,16 +119,35 @@ async function revise(
     }
   }
 
+  // Cross-modal evidence (optional): the demo-video judge's DemoVerdict. Same
+  // cross-wire checks as the peers, but it is NOT a peer — it never revises and
+  // it carries a different schema, so it is validated + threaded separately.
+  let demoVerdict = null;
+  if (demoRaw) {
+    demoVerdict = DemoVerdict.parse(demoRaw);
+    if (demoVerdict.submissionId !== submissionId) {
+      throw new Error(
+        `cross-modal demo verdict submissionId mismatch: revise got ${submissionId}, record has ${demoVerdict.submissionId}`,
+      );
+    }
+    if (demoVerdict.agentId !== AGENT_IDS.judgeDemo) {
+      throw new Error(
+        `cross-modal demo verdict agentId mismatch: expected ${AGENT_IDS.judgeDemo}, got ${demoVerdict.agentId}`,
+      );
+    }
+  }
+
   const claudeTimer = startTimer();
   logger.info({
     event: EVENTS.CLAUDE_REVISE_START,
     submissionId,
     ownScore: ownVerdict.score,
     peerScores: peerVerdicts.map((p) => p.score),
+    crossModal: !!demoVerdict, // log signal that demo evidence was delivered
   });
   const { input, usage, model } = await callJudge({
     system: SYSTEM_REVISE,
-    user: buildRevisePrompt({ ownVerdict, peerVerdicts }),
+    user: buildRevisePrompt({ ownVerdict, peerVerdicts, demoVerdict }),
     schema: REVISE_TOOL_SCHEMA,
     toolName: 'revise_verdict',
     toolDescription: 'Hold or revise your round-1 verdict after seeing peer verdicts.',

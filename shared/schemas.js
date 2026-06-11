@@ -56,6 +56,21 @@ const RevisedVerdict = z
 // null means that judge's /revise call failed (HTTP, 0G, LLM, or zod) and the
 // aggregator treated them as abstained-due-to-failure. The reason code lives in
 // the aggregator's log entries, not in the on-chain panel verdict.
+//
+// Phase 3 (cross-modal demo) additions — all OPTIONAL so a no-video run is
+// byte-for-byte identical to Phase 1/2:
+//   - weights: the actual weights used, making the artifact self-describing
+//     (with demo: 0.35/0.25/0.25/0.15; without: 0.4/0.3/0.3).
+//   - finalScores.demo: present iff the demo judge participated; equals the
+//     round-1 DemoVerdict score — THE DEMO JUDGE DOES NOT REVISE, so there is
+//     no demo entry in round2Revisions (that array is always the 3 text judges).
+//   - demoVerdictRootHash: the 0G hash of the DemoVerdict the demo evidence came
+//     from, so the panel is self-verifying.
+//   - round1Verdicts MAY include a judge-demo entry. The demo entry carries a
+//     claimsCheckSummary string (counts: N shown / M asserted-only / K
+//     contradicted) in place of the text judges' evidence[] — its evidence and
+//     claims_check are timestamped objects, not the string[] the text judges
+//     use, so they don't share a shape. evidence is therefore optional.
 const PanelVerdict = z.object({
   submissionId: z.string().uuid(),
   submissionRootHash: z.string(),
@@ -64,7 +79,8 @@ const PanelVerdict = z.object({
       agentId: z.string(),
       score: z.number().min(0).max(10),
       reasoning: z.string(),
-      evidence: z.array(z.string()),
+      evidence: z.array(z.string()).optional(), // text judges only
+      claimsCheckSummary: z.string().optional(), // judge-demo entry only
       verdictRootHash: z.string(),
     }),
   ),
@@ -81,7 +97,17 @@ const PanelVerdict = z.object({
     technical: z.number().min(0).max(10),
     originality: z.number().min(0).max(10),
     skeptic: z.number().min(0).max(10),
+    demo: z.number().min(0).max(10).optional(),
   }),
+  weights: z
+    .object({
+      technical: z.number(),
+      originality: z.number(),
+      skeptic: z.number(),
+      demo: z.number().optional(),
+    })
+    .optional(),
+  demoVerdictRootHash: z.string().optional(),
   weightedAggregate: z.number().min(0).max(10),
   spread: z.number().min(0).max(10),
   dissent: z.boolean(),

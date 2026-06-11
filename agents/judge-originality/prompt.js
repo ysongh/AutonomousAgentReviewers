@@ -87,9 +87,22 @@ your score to reflect that new information. If peers only disagree on how
 novel the same facts feel, hold — framing disagreements are not new
 prior-art evidence.
 
+CROSS-MODAL EVIDENCE: you may also be shown the demo-video judge's verdict
+(score, reasoning, timestamped evidence, and a claims_check). Treat it under
+the SAME evidence test. A claims_check entry marked "shown" is concrete
+evidence that a claimed feature actually works — it was demonstrated on screen
+at the cited timestamp. A "contradicted" entry is concrete evidence of a gap —
+the frame at that timestamp is at odds with the claim. A "shown" or
+"contradicted" entry counts as new evidence ONLY if it cites a timestamp;
+weight "contradicted" entries carefully and verify the timestamp before acting
+on them. An "asserted-only" entry is NOT evidence either way — it only means
+the claim was never demonstrated. (For originality specifically, the demo
+rarely bears on prior-art; only revise if it concretely changes your novelty
+read.)
+
 Two outcomes:
-  - Revise (revised=true): a peer surfaced concrete prior-art or
-    derivation evidence you missed. Set revisedScore (0-10 integer) and
+  - Revise (revised=true): a peer (text OR demo) surfaced concrete prior-art
+    or derivation evidence you missed. Set revisedScore (0-10 integer) and
     revisionReasoning (1-3 sentences naming the specific evidence and
     how it shifted your score).
   - Hold (revised=false): no new evidence, only different framing. Omit
@@ -99,7 +112,11 @@ Produce your decision by calling the revise_verdict tool.`;
 
 const SYSTEM_REVISE = SYSTEM + REVISE_APPENDIX;
 
-function buildRevisePrompt({ ownVerdict, peerVerdicts }) {
+// demoVerdict is OPTIONAL cross-modal evidence (the demo-video judge's DemoVerdict);
+// it is passed as a separate arg, NOT mixed into peerVerdicts (different schema).
+// When present, its claims_check + timestamped evidence are rendered as a clearly
+// labeled section the judge weighs under the same evidence test.
+function buildRevisePrompt({ ownVerdict, peerVerdicts, demoVerdict }) {
   const evList = (xs) => xs.map((e) => `  - ${e}`).join('\n');
   const peerSections = peerVerdicts
     .map(
@@ -111,6 +128,25 @@ function buildRevisePrompt({ ownVerdict, peerVerdicts }) {
     )
     .join('\n\n');
 
+  let demoSection = '';
+  if (demoVerdict) {
+    const demoEv = demoVerdict.evidence
+      .map((e) => `  - [${e.timestamp}] ${e.observation}`)
+      .join('\n');
+    const demoClaims = demoVerdict.claims_check
+      .map((c) => `  - [${c.verdict}]${c.timestamp ? ` @${c.timestamp}` : ''} ${c.claim}`)
+      .join('\n');
+    demoSection = `
+
+CROSS-MODAL EVIDENCE FROM THE DEMO VIDEO REVIEW (judge-demo):
+- Demo score: ${demoVerdict.score}/10
+- Reasoning: ${demoVerdict.reasoning}
+- Timestamped evidence:
+${demoEv}
+- Claims check (claim -> what the video actually shows):
+${demoClaims}`;
+  }
+
   return `Your round-1 verdict on this submission:
 - Score: ${ownVerdict.score}/10
 - Reasoning: ${ownVerdict.reasoning}
@@ -119,7 +155,7 @@ ${evList(ownVerdict.evidence)}
 
 Your peer judges' round-1 verdicts on the same submission:
 
-${peerSections}
+${peerSections}${demoSection}
 
 Decide whether to hold (revised=false) or revise (revised=true with new
 score + reasoning). Call the revise_verdict tool.`;

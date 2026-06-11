@@ -60,13 +60,64 @@ reference, not shown in the demo):
 
 ## Revision
 
-No candidate surfaced in Day 5 curation pass. The revise-prompt
-softening (evidence test in place of the previous hold-bias) did not
-produce a `revised: true` outcome in any of the three panel-producing
-runs. All nine round-2 calls in those three runs returned
-`revised: false` (abstain-by-choice). Three further runs hit
-round-1-race failures before deliberation could occur, so they did
-not exercise the softened prompt.
+**First organic revision — captured 2026-06-11 (Phase 2 with-video run).**
+
+The Day 5 curation corpus was all mature, widely-known libraries
+(sindresorhus/*, express, nanoGPT, …). Against those, the softened
+revise prompt only ever produced framing disagreements — every round-2
+call held (`revised: false`). A revision needs a peer to cite *concrete
+evidence the holder did not weigh in round 1*; a mature library gives
+every judge the same complete picture, so there is nothing new to
+surface. The first `revised: true` appeared the moment a **real project
+with real gaps** was judged: the AAR repo itself.
+
+**Repo**: ysongh/AutonomousAgentReviewers (with the narrated demo video)
+
+- submissionId: `1fdcb738-4015-4cf0-8d60-05a5e09bfaad`
+- submissionHash: `0x4405aa3d092fd7465163467ab452534bfb92e224e4638cb0831a61f607bdff1e`
+- panelHash: `0x6ea054719afb32d88f79b26af30211eb503a3ffa4a0c8768538e55201101918d`
+- aggregate: 7.70 (spread 1; final technical=8, originality=8, **skeptic 6→7**)
+- dissent: **false** — the panel *converged because the skeptic moved*,
+  not because everyone started aligned.
+
+The skeptic scored **6** in round 1, flagging that the top-level file
+tree did not expose the per-agent `agents/intake`, `agents/judge-*`
+subdirectories the README described — a classic promise-vs-delivery
+suspicion. In round 2 it saw judge-technical's evidence and revised to
+**7** (`revisionRootHash`
+`0x49f393076aa54fb16b6ebcdc580241494bcd7525c664215055e7e62bf438c04f`),
+with this `revisionReasoning`:
+
+> "The technical peer surfaced concrete evidence I couldn't verify from
+> the file tree alone: `shared/` contains proper subdirectories
+> (og-storage, claude, github, schemas, logger, config),
+> `scripts/generate-agent-wallets.js` and
+> `scripts/check-agent-balances.js` exist as real tooling, and CLAUDE.md
+> serves as a dedicated architecture document — these resolve my concern
+> that the per-agent structure might be underdeveloped. The agents/
+> subdirectory structure is still not fully confirmed, and TODO.md plus
+> bootstrap directories remain as legitimate gaps, but the overall
+> implementation appears more substantive than the file tree alone
+> suggested. I'm bumping one point for the concrete shared/ structure and
+> scripting evidence, while holding back from 8 due to the ergonomics gap
+> (8 separate install steps), TODO.md, and the external dependency
+> requirements that make independent verification hard."
+
+This is the evidence test working exactly as designed: a concrete,
+citable peer observation (specific files/scripts/docs the skeptic had
+not weighed) moved the score; the residual gaps it could *not* verify
+kept it from going all the way to 8. The panel hash downloads cleanly
+via `node bootstrap/download.js <hash>` and through the dashboard's
+log-streamer `/verify/<hash>` endpoint.
+
+> Note: this run pre-dates the Phase 3 cross-modal re-sequencing — the
+> demo verdict here sat *beside* the panel (Phase 2), it did not yet feed
+> round 2. The revision above came from a **text** peer (judge-technical),
+> not the demo judge. It is recorded here because it is the corpus's first
+> organic revision and the canonical "real project with real gaps"
+> demonstration. A cross-modal revision (a text judge moved by a demo
+> `shown`/`contradicted` entry) is the Phase 3 hunt — see the Phase 3
+> verification notes.
 
 ## Graceful degradation
 

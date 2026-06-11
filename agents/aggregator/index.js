@@ -46,10 +46,14 @@ app.use(express.json({ limit: '256kb' }));
 app.get('/health', (_req, res) => res.json({ ok: true, agent: AGENT_ID }));
 
 app.post('/aggregate', async (req, res) => {
-  const { submissionId, submissionRootHash, verdictRootHashes } = req.body || {};
+  // demoVerdictRootHash is OPTIONAL — present only when a demo review succeeded.
+  // Its absence keeps the aggregator in 3-judge mode (no-video / degraded /
+  // demo-failed runs all land here identically).
+  const { submissionId, submissionRootHash, verdictRootHashes, demoVerdictRootHash } =
+    req.body || {};
   try {
     const result = await aggregate(
-      { submissionId, submissionRootHash, verdictRootHashes },
+      { submissionId, submissionRootHash, verdictRootHashes, demoVerdictRootHash },
       { logger, signer, simulateFailure },
     );
     res.json(result);

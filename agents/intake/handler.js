@@ -1,10 +1,12 @@
 const crypto = require('crypto');
+const fs = require('fs');
 const { uploadJSON, downloadJSON } = require('aar-shared/og-storage');
 const { uploadVideo } = require('aar-shared/filecoin-storage');
 const { fetchRepoMetadata } = require('aar-shared/github');
 const { SubmissionRecord, JudgeVerdict, PanelVerdict, DemoVerdict } = require('aar-shared/schemas');
 const { AGENT_IDS, JUDGE_URLS, AGGREGATOR_URL, JUDGE_DEMO_URL } = require('aar-shared/config');
 const { EVENTS, startTimer } = require('aar-shared/logger');
+const { transcodeVideo } = require('./transcode');
 
 const AGENT_ID = AGENT_IDS.intake;
 
@@ -56,7 +58,7 @@ async function callOneJudge({ judgeId, url }, { submissionRootHash, submissionId
 }
 
 async function callAggregator(
-  { submissionId, submissionRootHash, verdictRootHashes },
+  { submissionId, submissionRootHash, verdictRootHashes, demoVerdictRootHash },
   logger,
 ) {
   const timer = startTimer();
@@ -68,7 +70,15 @@ async function callAggregator(
   const resp = await fetch(`${AGGREGATOR_URL}/aggregate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ submissionId, submissionRootHash, verdictRootHashes }),
+    // demoVerdictRootHash is OPTIONAL — present only when a demo review
+    // succeeded. Its absence puts the aggregator in 3-judge mode (the demo
+    // judge never blocks the panel).
+    body: JSON.stringify({
+      submissionId,
+      submissionRootHash,
+      verdictRootHashes,
+      ...(demoVerdictRootHash ? { demoVerdictRootHash } : {}),
+    }),
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
@@ -139,6 +149,46 @@ async function callDemoJudge({ submissionId, submissionRootHash, videoPieceCid }
   return { demoVerdictRootHash, demoVerdict };
 }
 
+// Transcode (ONE attempt) then upload (ONE internal retry) the demo video.
+// Returns the Filecoin upload result, or THROWS on persistent failure — the
+// caller catches and degrades the submission to no-video. The transcoded temp
+// file is cleaned here regardless of outcome (the input is cleaned by index.js).
+async function prepareVideo(videoPath, submissionId, logger) {
+  const transTimer = startTimer();
+  logger.info({ event: EVENTS.VIDEO_TRANSCODE_START, submissionId });
+  let transcoded;
+  try {
+    transcoded = await transcodeVideo(videoPath); // ONE attempt — no retry
+  } catch (err) {
+    throw new Error(`transcode failed: ${err.message}`);
+  }
+  logger.info({
+    event: EVENTS.VIDEO_TRANSCODE_COMPLETE,
+    submissionId,
+    inputBytes: transcoded.inputBytes,
+    outputBytes: transcoded.outputBytes,
+    durationMs: transTimer(),
+  });
+
+  try {
+    const fcTimer = startTimer();
+    logger.info({ event: EVENTS.FILECOIN_UPLOAD_START, submissionId });
+    const r = await uploadVideo(transcoded.outputPath, { logger, submissionId }); // ONE internal retry
+    logger.info({
+      event: EVENTS.FILECOIN_UPLOAD_COMPLETE,
+      submissionId,
+      pieceCid: r.pieceCid,
+      sizeBytes: r.sizeBytes,
+      uploadMs: r.uploadMs,
+      attempts: r.attempts,
+      durationMs: fcTimer(),
+    });
+    return r;
+  } finally {
+    fs.rmSync(transcoded.outputPath, { force: true });
+  }
+}
+
 async function intake({ repoUrl, videoPath }, { logger, signer }) {
   if (!repoUrl) throw new Error('repoUrl is required');
   if (!signer) throw new Error('intake requires a signer');
@@ -147,26 +197,13 @@ async function intake({ repoUrl, videoPath }, { logger, signer }) {
   logger.info({ event: EVENTS.SUBMISSION_STARTED, submissionId, repoUrl });
   logger.info({ event: EVENTS.SUBMISSION_RECEIVED, submissionId, repoUrl, hasVideo: !!videoPath });
 
-  // Kick off the Filecoin Warm Storage upload IMMEDIATELY (before the GitHub
-  // fetch) so its ~90-150s latency overlaps the repo fetch. We still AWAIT it
-  // just before uploading the SubmissionRecord — the record is immutable once
-  // on 0G, so both video fields must be set before that write. uploadMs is
-  // logged to measure the real cost of putting Filecoin on the submit path.
-  let videoUploadPromise = null;
+  // Kick off transcode + Filecoin upload IMMEDIATELY (before the GitHub fetch)
+  // so its latency overlaps the repo fetch. We still AWAIT it just before
+  // uploading the SubmissionRecord — the record is immutable once on 0G, so both
+  // video fields must be set before that write.
+  let videoPromise = null;
   if (videoPath) {
-    const fcTimer = startTimer();
-    logger.info({ event: EVENTS.FILECOIN_UPLOAD_START, submissionId });
-    videoUploadPromise = uploadVideo(videoPath, { logger }).then((r) => {
-      logger.info({
-        event: EVENTS.FILECOIN_UPLOAD_COMPLETE,
-        submissionId,
-        pieceCid: r.pieceCid,
-        sizeBytes: r.sizeBytes,
-        uploadMs: r.uploadMs,
-        durationMs: fcTimer(),
-      });
-      return r;
-    });
+    videoPromise = prepareVideo(videoPath, submissionId, logger);
   }
 
   const ghTimer = startTimer();
@@ -181,10 +218,23 @@ async function intake({ repoUrl, videoPath }, { logger, signer }) {
     durationMs: ghTimer(),
   });
 
-  // Await the Filecoin upload here so the record is immutable with both video
-  // fields set. Null for video-less submissions — the pipeline then behaves
-  // byte-for-byte as before.
-  const video = videoUploadPromise ? await videoUploadPromise : null;
+  // Await the video here so the record is immutable with both video fields set.
+  // Null for video-less submissions — the pipeline then behaves byte-for-byte as
+  // before. VIDEO NEVER BLOCKS THE PANEL: if transcode failed or both upload
+  // attempts failed, we degrade to no-video (null fields on the record) and
+  // surface demoVideoError on the response only. The submission still produces a
+  // full 3-judge panel.
+  let video = null;
+  let demoVideoError = null;
+  if (videoPromise) {
+    try {
+      video = await videoPromise;
+    } catch (err) {
+      logger.warn({ event: EVENTS.VIDEO_DEGRADED, submissionId, error: err.message });
+      demoVideoError = err.message;
+      video = null;
+    }
+  }
 
   const submission = SubmissionRecord.parse({
     submissionId,
@@ -225,12 +275,40 @@ async function intake({ repoUrl, videoPath }, { logger, signer }) {
     }
   }
 
+  // DEMO REVIEW — runs AFTER round 1 and BEFORE round 2 so the demo evidence can
+  // feed the text judges' deliberation (Phase 3 re-sequencing). Only when the
+  // submission actually carries a stored video. NEVER blocks the panel: any
+  // failure leaves demoVerdictRootHash null (the aggregator stays in 3-judge
+  // mode) and surfaces demoVerdictError on the response. Runs even when round 1
+  // is short — the demo verdict is still a useful artifact to return.
+  let demoVerdict;
+  let demoVerdictRootHash = null;
+  let demoVerdictError = null;
+  if (video) {
+    try {
+      const r = await callDemoJudge(
+        { submissionId, submissionRootHash, videoPieceCid: video.pieceCid },
+        logger,
+      );
+      demoVerdict = r.demoVerdict;
+      demoVerdictRootHash = r.demoVerdictRootHash;
+    } catch (err) {
+      logger.error({
+        event: EVENTS.ERROR,
+        submissionId,
+        error: `demo judge failed: ${err.message}`,
+      });
+      demoVerdict = null;
+      demoVerdictError = err.message;
+    }
+  }
+
   let panelVerdictRootHash = null;
   let panelVerdict = null;
   if (verdicts.length === JUDGES.length) {
     try {
       const result = await callAggregator(
-        { submissionId, submissionRootHash, verdictRootHashes },
+        { submissionId, submissionRootHash, verdictRootHashes, demoVerdictRootHash },
         logger,
       );
       panelVerdictRootHash = result.panelVerdictRootHash;
@@ -260,27 +338,16 @@ async function intake({ repoUrl, videoPath }, { logger, signer }) {
     panelVerdict,
   };
 
-  // Demo judge runs AFTER the panel and NEVER blocks it. Only when the
-  // submission carried a video. Any failure degrades to demoVerdict:null +
-  // demoVerdictError — the panel result above is untouched. Video-less
-  // submissions get no demo fields at all (byte-for-byte unchanged response).
-  if (video) {
-    try {
-      const { demoVerdictRootHash, demoVerdict } = await callDemoJudge(
-        { submissionId, submissionRootHash, videoPieceCid: video.pieceCid },
-        logger,
-      );
-      response.demoVerdict = demoVerdict;
-      response.demoVerdictRootHash = demoVerdictRootHash;
-    } catch (err) {
-      logger.error({
-        event: EVENTS.ERROR,
-        submissionId,
-        error: `demo judge failed: ${err.message}`,
-      });
-      response.demoVerdict = null;
-      response.demoVerdictError = err.message;
-    }
+  // Demo fields appear on the response ONLY when a video was submitted (with or
+  // without a video, video-less submissions stay byte-for-byte unchanged):
+  //   - degraded (transcode/upload failed): demoVerdict null + demoVideoError.
+  //   - review failed: demoVerdict null + demoVerdictError.
+  //   - success: demoVerdict + demoVerdictRootHash.
+  if (videoPath) {
+    response.demoVerdict = demoVerdict ?? null;
+    response.demoVerdictRootHash = demoVerdictRootHash;
+    if (demoVideoError) response.demoVideoError = demoVideoError;
+    if (demoVerdictError) response.demoVerdictError = demoVerdictError;
   }
 
   return response;

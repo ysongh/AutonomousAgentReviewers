@@ -88,6 +88,7 @@ async function main() {
     demoVerdict = undefined,
     demoVerdictRootHash = null,
     demoVerdictError = null,
+    demoVideoError = null,
   } = parsed;
 
   console.log('\n=== PIPELINE COMPLETE in', elapsed, 's ===');
@@ -122,10 +123,23 @@ async function main() {
 
     console.log('\n=== PANEL VERDICT ===');
     console.log('panelVerdictRootHash:', panelVerdictRootHash);
+    const fs2 = panelVerdict.finalScores;
     console.log('finalScores:        ',
-      `technical=${panelVerdict.finalScores.technical}`,
-      `originality=${panelVerdict.finalScores.originality}`,
-      `skeptic=${panelVerdict.finalScores.skeptic}`);
+      `technical=${fs2.technical}`,
+      `originality=${fs2.originality}`,
+      `skeptic=${fs2.skeptic}`,
+      fs2.demo !== undefined ? `demo=${fs2.demo}` : '(no demo)');
+    if (panelVerdict.weights) {
+      const w = panelVerdict.weights;
+      console.log('weights:            ',
+        `technical=${w.technical}`,
+        `originality=${w.originality}`,
+        `skeptic=${w.skeptic}`,
+        w.demo !== undefined ? `demo=${w.demo}` : '(no demo)');
+    }
+    if (panelVerdict.demoVerdictRootHash) {
+      console.log('demoVerdictRootHash:', panelVerdict.demoVerdictRootHash, '(cross-modal — fed into round 2)');
+    }
     console.log('weightedAggregate:  ', panelVerdict.weightedAggregate.toFixed(2), '/ 10');
     console.log('spread:             ', panelVerdict.spread);
     console.log('dissent:            ', panelVerdict.dissent);
@@ -138,8 +152,13 @@ async function main() {
   if (demoVerdict !== undefined) {
     console.log('\n=== DEMO VERDICT (judge-demo) ===');
     if (demoVerdict === null) {
-      console.log('(demo judge failed — panel above is unaffected)');
-      if (demoVerdictError) console.log('error:', demoVerdictError);
+      if (demoVideoError) {
+        console.log('(video degraded to no-video — transcode/upload failed; panel ran in 3-judge mode)');
+        console.log('demoVideoError:', demoVideoError);
+      } else {
+        console.log('(demo judge failed — panel above is unaffected)');
+        if (demoVerdictError) console.log('demoVerdictError:', demoVerdictError);
+      }
     } else {
       console.log('demoVerdictRootHash:', demoVerdictRootHash);
       console.log('score:    ', demoVerdict.score, '/ 10');
